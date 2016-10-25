@@ -1,9 +1,10 @@
 """
+Unsupervised Learning
+clustering and reduction
 
-http://fromdatawithlove.thegovans.us/2013/05/clustering-using-scikit-learn.html
 """
 
-from __future__ import division
+from __future__ import division #division of integers
 print(__doc__)
 
 from time import time
@@ -136,11 +137,16 @@ if __name__ == "__main__":
     np.random.seed(42)
     
     train_df = pd.read_csv(get_path("../../datasets/credit_full.csv"))
+    test_df = pd.read_csv(get_path("../../datasets/credit_test_num.csv"))
+    
+    # smallish_data
+    data_X = np.array(test_df.drop(['LIMIT_BAL','DEFAULT', 'SEX','EDUCATION','MARRIAGE','AGE','PAY_0','PAY_2','PAY_3','PAY_4','PAY_5','PAY_6'], 1))
+    data_Y = np.array(test_df['DEFAULT'])
     
     # convert the "quality" label column to numpy arrays
-    data_X = np.array(train_df.drop(['LIMIT_BAL','DEFAULT', 'SEX','EDUCATION','MARRIAGE','AGE','PAY_0','PAY_2','PAY_3','PAY_4','PAY_5','PAY_6'], 1))
+    #data_X = np.array(train_df.drop(['LIMIT_BAL','DEFAULT', 'SEX','EDUCATION','MARRIAGE','AGE','PAY_0','PAY_2','PAY_3','PAY_4','PAY_5','PAY_6'], 1))
     #data_X = np.array(train_df.drop(['DEFAULT'], 1))
-    data_Y = np.array(train_df['DEFAULT'])
+    #data_Y = np.array(train_df['DEFAULT'])
     
     # Scaling
     scaler = StandardScaler()
@@ -151,7 +157,7 @@ if __name__ == "__main__":
     n_samples, n_features = data_X.shape
     n_creditY = len(np.unique(data_Y))
     #n_creditY = 5
-    sample_size = 10000
+    sample_size = 1000
     
     print("n_creditY: %d, \t n_samples: %d, \t n_features: %d"
       % (n_creditY, n_samples, n_features))
@@ -160,18 +166,23 @@ if __name__ == "__main__":
     kmeans_scaled = KMeans(init='k-means++', n_clusters=n_creditY, n_init=50)
     kmeansPCA = KMeans(init='k-means++', n_clusters=n_creditY, n_init=50)
     kmeansPCA_scaled = KMeans(init='k-means++', n_clusters=n_creditY, n_init=50)
+    kmeansTSNE_scaled = KMeans(init='k-means++', n_clusters=1, n_init=50)
     
     # run PCA
-    reduced_data = PCA(n_components=5).fit_transform(data_X)
-    reduced_scaled = PCA(n_components=5).fit_transform(data_X_scaled)
+    reduced_data = PCA(n_components=2).fit_transform(data_X)
+    reduced_scaled = PCA(n_components=2).fit_transform(data_X_scaled)
+    reduced_tsne = TSNE(n_components=2, random_state=0, n_iter=1000).fit_transform(data_X_scaled)
+    #reduced_mds = MDS(n_components=2, max_iter=200, n_init=1, random_state=42).fit_transform(data_X_scaled)    
     
     # Randomized Projections 
-    X = np.random.rand(100, 10000)
-    transformer = random_projection.GaussianRandomProjection()
-    X_new = transformer.fit_transform(X)
+    #X = np.random.rand(100, 10000)
+    #transformer = random_projection.GaussianRandomProjection()
+    #X_new = transformer.fit_transform(X)
     
     classifiers = {"default":[kmeans, data_X],"scaled":[kmeans_scaled, data_X_scaled], 
-              "PCA-default":[kmeansPCA, reduced_data], "PCA-scaled":[kmeansPCA_scaled, reduced_scaled]}
+                  "PCA-default":[kmeansPCA, reduced_data], 
+                  "PCA-scaled":[kmeansPCA_scaled, reduced_scaled],
+                  "TSNE-scaled":[kmeansTSNE_scaled, reduced_tsne]}
     
     # Generate clusters
     print(79 * '_')
@@ -190,11 +201,13 @@ if __name__ == "__main__":
     print('% 10s' % 'Features' '    Cluster #0, %     Cluster #1, %   Accuracy, %     silhouette')
     
     # print statistics
-    print_clusters(classifiers)
+    #print_clusters(classifiers)
     
     # Visualize the results on PCA-reduced data
     #visualize(reduced_scaled, kmeansPCA_scaled, 0.02, "K-means on the Credit PCA-reduced data (scaled)")
     #visualize(reduced_data, kmeansPCA, 1000, "K-means on the Credit PCA-reduced data (unscaled)")
+    
+    visualize(reduced_tsne, kmeansTSNE_scaled, 0.05, "K-means on the Credit TSNE-reduced data (scaled)")
     
     
     #http://brandonrose.org/clustering
@@ -202,9 +215,6 @@ if __name__ == "__main__":
     #similarities = metrics.euclidean_distances(reduced_scaled)
     #reduced_mds = MDS(n_components=2, dissimilarity="precomputed", random_state=1).fit(similarities).embedding_#.fit_transform(similarities)
     #pos = mds.fit_transform(dist)  # shape (n_components, n_samples)
-    
-    reduced_mds = MDS(n_components=2, dissimilarity="precomputed", random_state=1).fit(similarities).embedding_#.fit_transform(similarities)
-    pos = mds.fit_transform(dist)  # shape (n_components, n_samples)
     
     '''
     # Confusion Matrix

@@ -16,7 +16,7 @@ import os
 from sklearn import metrics
 from sklearn.cluster import KMeans
 from sklearn.datasets import load_digits
-from sklearn.decomposition import PCA, FastICA
+from sklearn.decomposition import PCA
 from sklearn.preprocessing import scale
 from sklearn.preprocessing import StandardScaler
 from sklearn.manifold import MDS
@@ -70,11 +70,10 @@ def get_accuracy(clf, X, Y, name='clf'):
     
 
 def bench_k_means(estimator, name, data, labels):
-    t_start = time()
+    t0 = time()
     estimator.fit(data)
-    t_spent = time() - t_start
     print('% 11s   %.2fs    %.2E   %.3f   %.3f   %.3f   %.3f   %.3f'
-          % (name, (t_spent), estimator.inertia_,
+          % (name, (time() - t0), estimator.inertia_,
              metrics.homogeneity_score(labels, estimator.labels_),
              metrics.completeness_score(labels, estimator.labels_),
              metrics.v_measure_score(labels, estimator.labels_),
@@ -100,13 +99,13 @@ def print_clusters(classifiers):
                                       sample_size=sample_size)))
                                       
 
-def visualize(reduced_PCA_unscaled, clf, h, title):
+def visualize(reduced_data, clf, h, title):
     # Step size of the mesh. Decrease to increase the quality of the VQ.
     #h = 0.02     # point in the mesh [x_min, x_max]x[y_min, y_max].
     
     # Plot the decision boundary. For that, we will assign a color to each
-    x_min, x_max = reduced_PCA_unscaled[:, 0].min() - 1, reduced_PCA_unscaled[:, 0].max() + 1
-    y_min, y_max = reduced_PCA_unscaled[:, 1].min() - 1, reduced_PCA_unscaled[:, 1].max() + 1
+    x_min, x_max = reduced_data[:, 0].min() - 1, reduced_data[:, 0].max() + 1
+    y_min, y_max = reduced_data[:, 1].min() - 1, reduced_data[:, 1].max() + 1
     xx, yy = np.meshgrid(np.arange(x_min, x_max, h), np.arange(y_min, y_max, h))
     
     # Obtain labels for each point in mesh. Use last trained model.
@@ -121,12 +120,12 @@ def visualize(reduced_PCA_unscaled, clf, h, title):
                cmap=plt.cm.Paired,
                aspect='auto', origin='lower')
     
-    plt.plot(reduced_PCA_unscaled[:, 0], reduced_PCA_unscaled[:, 1], 'k.', markersize=2)
+    plt.plot(reduced_data[:, 0], reduced_data[:, 1], 'k.', markersize=2)
     # Plot the centroids as a white X
-    centroids = clf.cluster_centers_
+    '''centroids = clf.cluster_centers_
     plt.scatter(centroids[:, 0], centroids[:, 1],
                 marker='x', s=169, linewidths=3,
-                color='w', zorder=10)
+                color='w', zorder=10)'''
     plt.title(title)
     plt.xlim(x_min, x_max)
     plt.ylim(y_min, y_max)
@@ -136,69 +135,59 @@ def visualize(reduced_PCA_unscaled, clf, h, title):
 
 if __name__ == "__main__":
     np.random.seed(42)
-    NUM_COMP = 6
     
-    full_df = pd.read_csv(get_path("../../datasets/credit_full.csv"))
-    small_df = pd.read_csv(get_path("../../datasets/credit_test_num.csv"))
+    train_df = pd.read_csv(get_path("../../datasets/wine_full.csv"))
+    #test_df = pd.read_csv(get_path("../../datasets/credit_test_num.csv"))
     
-    # 30% of dataste
-    #data_X = np.array(small_df.drop(['LIMIT_BAL','DEFAULT', 'SEX','EDUCATION','MARRIAGE','AGE','PAY_0','PAY_2','PAY_3','PAY_4','PAY_5','PAY_6'], 1))
-    #data_Y = np.array(small_df['DEFAULT'])
+    # smallish_data
+    #data_X = np.array(test_df.drop(['DEFAULT'], 1))
+    #data_X = np.array(test_df.drop(['LIMIT_BAL','DEFAULT', 'SEX','EDUCATION','MARRIAGE','AGE','PAY_0','PAY_2','PAY_3','PAY_4','PAY_5','PAY_6'], 1))
+    #data_Y = np.array(test_df['DEFAULT'])
     
     # convert the "quality" label column to numpy arrays
-    #data_X = np.array(full_df.drop(['LIMIT_BAL','DEFAULT', 'SEX','EDUCATION','MARRIAGE','AGE','PAY_0','PAY_2','PAY_3','PAY_4','PAY_5','PAY_6'], 1))
-    data_X = np.array(full_df.drop(['DEFAULT'], 1))
-    data_Y = np.array(full_df['DEFAULT'])
+    #data_X = np.array(train_df.drop(['LIMIT_BAL','DEFAULT', 'SEX','EDUCATION','MARRIAGE','AGE','PAY_0','PAY_2','PAY_3','PAY_4','PAY_5','PAY_6'], 1))
+    data_X = np.array(train_df.drop(['quality'], 1))
+    data_Y = np.array(train_df['quality'])
     
     # Scaling
-    #scaler = StandardScaler()
+    scaler = StandardScaler()
     #data_X_scaled = scaler.fit_transform(data_X)    
     data_X_scaled = scale(data_X)
-    #data_X_scaled = data_X 
     
     #credit
     n_samples, n_features = data_X.shape
     n_creditY = len(np.unique(data_Y))
-    #n_creditY = 4
+    #n_creditY = 5
     sample_size = 1000
     
     print("n_creditY: %d, \t n_samples: %d, \t n_features: %d"
       % (n_creditY, n_samples, n_features))
     
-    # Initialize k-means objects
     kmeans = KMeans(init='k-means++', n_clusters=n_creditY, n_init=50)
     kmeans_scaled = KMeans(init='k-means++', n_clusters=n_creditY, n_init=50)
     kmeansPCA = KMeans(init='k-means++', n_clusters=n_creditY, n_init=50)
     kmeansPCA_scaled = KMeans(init='k-means++', n_clusters=n_creditY, n_init=50)
-    kmeansICA = KMeans(init='k-means++', n_clusters=n_creditY, n_init=50)
-    kmeansRP = KMeans(init='k-means++', n_clusters=n_creditY, n_init=50)
-
+    kmeansTSNE_scaled = KMeans(init='k-means++', n_clusters=1, n_init=50)
     
-    # run Dimension Reduction Algorithms
-    reduced_PCA_unscaled = PCA(n_components=NUM_COMP).fit_transform(data_X)
+    # run PCA
+    reduced_data = PCA(n_components=2).fit_transform(data_X)
+    reduced_scaled = PCA(n_components=2).fit_transform(data_X_scaled)
+    #reduced_tsne = TSNE(n_components=2, random_state=0, n_iter=1000, init="pca").fit_transform(data_X_scaled)
+    reduced_tsne = MDS(n_components=2, max_iter=300, n_init=4, random_state=43).fit_transform(data_X_scaled)    
     
-    t_start = time()
-    reduced_PCA_scaled = PCA(n_components=NUM_COMP).fit_transform(data_X_scaled)
-    t_PCA = time() - t_start
+    # Randomized Projections 
+    #X = np.random.rand(100, 10000)
+    #transformer = random_projection.GaussianRandomProjection()
+    #X_new = transformer.fit_transform(X)
     
-    t_start = time()
-    reduced_ICA = FastICA(n_components=NUM_COMP, random_state=42).fit_transform(data_X_scaled)
-    t_ICA = time() - t_start
-    
-    t_start = time()
-    reduced_RP = random_projection.GaussianRandomProjection(n_components=NUM_COMP).fit_transform(data_X_scaled)
-    t_RP = time() - t_start
-    
-    classifiers = {"unscaled":[kmeans, data_X],
-                   "scaled":[kmeans_scaled, data_X_scaled], 
-                   "PCA-unscaled":[kmeansPCA, reduced_PCA_unscaled], 
-                   "PCA-scaled":[kmeansPCA_scaled, reduced_PCA_scaled],
-                   "ICA":[kmeansICA, reduced_ICA],
-                   "RP":[kmeansRP, reduced_RP]}
+    classifiers = {"default":[kmeans, data_X],"scaled":[kmeans_scaled, data_X_scaled], 
+                  "PCA-default":[kmeansPCA, reduced_data], 
+                  "PCA-scaled":[kmeansPCA_scaled, reduced_scaled],
+                  "TSNE-scaled":[kmeansTSNE_scaled, reduced_tsne]}
     
     # Generate clusters
     print(79 * '_')
-    print('% 12s' % 'init      '
+    print('% 10s' % 'init      '
           '    time      inertia   homo    compl  v-meas     ARI     AMI  silhouette')
     for name, clf_list in classifiers.items():     
         clf, data_used = clf_list
@@ -210,20 +199,23 @@ if __name__ == "__main__":
     cluster1_true = ((np.count_nonzero(data_Y == 1))/len(data_Y))*100 
     print("cluster_true #0: {0:.2f}%\ncluster_true #1: {1:.2f}%\n".format(cluster0_true, cluster1_true))
     print(79 * '_')
-    print('% 10s' % 'Features' '    Cluster #0, %     Cluster #1, %   Accuracy, %     Silhouette')
+    print('% 10s' % 'Features' '    Cluster #0, %     Cluster #1, %   Accuracy, %     silhouette')
     
     # print statistics
-    print_clusters(classifiers)
-    print("\nPCA_time {0:.2f} \nICA_time {1:.2f} \nRP_time {1:.2f}".format(t_PCA, t_ICA, t_RP))
+    #print_clusters(classifiers)
     
     # Visualize the results on PCA-reduced data
-    if NUM_COMP < 3:
-        visualize(reduced_PCA_scaled, kmeansPCA_scaled, 0.02, "K-means on the Credit PCA-reduced data (scaled)")
-        visualize(reduced_PCA_unscaled, kmeansPCA, 1000, "K-means on the Credit PCA-reduced data (unscaled)")
-        visualize(reduced_ICA, kmeansICA, 0.005, "K-means on the Credit ICA-reduced data")
-    #visualize(reduced_RP, kmeansRP, 0.02, "K-means on the Credit RP-reduced data")
+    #visualize(reduced_scaled, kmeansPCA_scaled, 0.02, "K-means on the Credit PCA-reduced data (scaled)")
+    #visualize(reduced_data, kmeansPCA, 1000, "K-means on the Credit PCA-reduced data (unscaled)")
     
-
+    visualize(reduced_tsne, kmeansTSNE_scaled, 0.05, "K-means on the Credit MDS-reduced data (scaled)")
+    
+    
+    #http://brandonrose.org/clustering
+    #http://stackoverflow.com/questions/32930647
+    #similarities = metrics.euclidean_distances(reduced_scaled)
+    #reduced_mds = MDS(n_components=2, dissimilarity="precomputed", random_state=1).fit(similarities).embedding_#.fit_transform(similarities)
+    #pos = mds.fit_transform(dist)  # shape (n_components, n_samples)
     
     '''
     # Confusion Matrix
@@ -233,7 +225,7 @@ if __name__ == "__main__":
     print("\n")
     
     print(pd.crosstab(kmeansPCA.labels_, data_Y))   
-    print_accuracy(kmeansPCA, reduced_PCA_unscaled, data_Y, name='kmeansPCA')
+    print_accuracy(kmeansPCA, reduced_data, data_Y, name='kmeansPCA')
     '''
     ###############################################################################
     

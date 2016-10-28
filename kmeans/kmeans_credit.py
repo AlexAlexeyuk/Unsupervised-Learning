@@ -43,7 +43,24 @@ def get_accuracy(clf, X, Y, name='clf'):
     accuracy1 = correct/len(X)*100
     accuracy2 = 100 - accuracy1
     return max(accuracy1, accuracy2)
+
+def plot_pc_variance(data):
+    pca = PCA()
+    pca.fit(data)
     
+    #Cumulative Variance explains
+    var1=np.cumsum(np.round(pca.explained_variance_ratio_, decimals=4)*100)
+    print var1
+    
+    plt.plot(var1)
+    plt.ylim(20, 105)
+    plt.xlim(0, 23)
+    plt.ylabel("Variance %")
+    plt.xlabel("Principal Comonents Number")
+    plt.grid(b=True, which='major', color="#a0a0a0", linestyle='-')
+    #plt.grid(b=True, which='minor', color="#a0a0a0", linestyle='-')
+    plt.title("Principal Components vs. Variance")
+    plt.minorticks_on()
 
 def bench_k_means(estimator, name, data, labels):
     t_start = time()
@@ -64,15 +81,17 @@ def bench_k_means(estimator, name, data, labels):
              #                         sample_size=sample_size)))
    
                                       
-def fit_estimators(estimators, labels, filename):
+def fit_estimators(estimators, labels, filename, NUM_ATTR):
     datarows = []
     for name, est_list in estimators.items():
-        estimator, data_used, time_red = est_list
+        estimator, data_used, time_reduction = est_list
         
+        # fit the data
         t_start = time()
         estimator.fit(data_used)
         t_fit = time() - t_start
         
+        # get clusters' sizes
         cluster0 = ((np.count_nonzero(estimator.labels_ == 0))/len(data_used))*100  
         cluster1 = ((np.count_nonzero(estimator.labels_ == 1))/len(data_used))*100
         cluster_num0 = max(cluster0, cluster1)
@@ -87,14 +106,14 @@ def fit_estimators(estimators, labels, filename):
         ami = metrics.adjusted_mutual_info_score(labels,  estimator.labels_)  
         silhouette = metrics.silhouette_score(data_used, estimator.labels_,
                                       metric='euclidean',
-                                      sample_size=sample_size)        
+                                      sample_size=silhouette_sample)        
         
         print('%11s      %.2f           %.2f         %.2f          %.3f          %.2fs        %.2fs'
-          % (name, cluster_num0, cluster_num1, accuracy, silhouette, t_fit, time_red))
+          % (name, cluster_num0, cluster_num1, accuracy, silhouette, t_fit, time_reduction))
     
-        datarows.append([name, NUM_COMP, "{:.2f}".format(cluster_num0), "{:.2f}".format(cluster_num1), 
+        datarows.append([name, NUM_ATTR, "{:.2f}".format(cluster_num0), "{:.2f}".format(cluster_num1), 
                          "{:.2f}".format(accuracy), "{:.3f}".format(silhouette), "{:.2f}".format(t_fit), 
-                         "{:.2f}".format(time_red),"{:.2E}".format(estimator.inertia_), homogeneity, 
+                         "{:.2f}".format(time_reduction),"{:.2E}".format(estimator.inertia_), homogeneity, 
                          completeness, v_measure, ari, ami])
                          
     is_file = os.path.exists(filename)
@@ -155,11 +174,12 @@ def visualize(X, est, title):
 
 if __name__ == "__main__":
     np.random.seed(42)
-    NUM_COMP = 10
+    NUM_ATTR = 2
+    silhouette_sample = 15000
+    attr_list_full = [2, 5, 10, 15, 20]
+    attr_list_reduced = [2, 6, 10]
     
-    attrArray = [2, 6, 10]
-    
-    fileout = "credit_kmeans.csv"
+    #output_file = "credit_kmeans_23attr.csv"
     
     full_df = pd.read_csv(get_path("../../datasets/credit_full.csv"))
     small_df = pd.read_csv(get_path("../../datasets/credit_test_num.csv"))
@@ -174,82 +194,73 @@ if __name__ == "__main__":
     data_Y = np.array(full_df['DEFAULT'])
     
     # Scaling
-    data_X_scaled = StandardScaler().fit_transform(data_X)   
-    #data_X_scaled = scale(data_X)
+    #data_X_scaled = StandardScaler().fit_transform(data_X)   
+    data_X_scaled = scale(data_X)
     #data_X_scaled = data_X 
-
-    #credit
+    data_type_list = [
+                       [data_X_scaled, "credit_kmeans_23attr.csv"],
+                       [data_X, "credit_kmeans_23attr_unscaled.csv"]
+                     ]    
+    
+    #Data Statistics
     n_samples, n_features = data_X.shape
     n_creditY = len(np.unique(data_Y))
-    #n_creditY = 4
-    sample_size = 5000
-    
-    print("n_creditY: %d, \t n_samples: %d, \t n_features: %d"
-      % (n_creditY, n_samples, n_features))
-    
-        
-    # Initialize k-means objects
-    kmeans = KMeans(init='k-means++', n_clusters=n_creditY, n_init=50)
-    kmeans_scaled = KMeans(init='k-means++', n_clusters=n_creditY, n_init=50)
-    kmeansPCA = KMeans(init='k-means++', n_clusters=n_creditY, n_init=50)
-    kmeansPCA_scaled = KMeans(init='k-means++', n_clusters=n_creditY, n_init=50)
-    kmeansICA = KMeans(init='k-means++', n_clusters=n_creditY, n_init=50)
-    kmeansRP = KMeans(init='k-means++', n_clusters=n_creditY, n_init=50)
-    kmeansFA = KMeans(init='k-means++', n_clusters=n_creditY, n_init=50)
-
-    
-    # run Dimension Reduction Algorithms
-    t_start = time()
-    reduced_PCA_unscaled = PCA(n_components=NUM_COMP).fit_transform(data_X)
-    t_PCA_unscaled = time() - t_start
-    
-    t_start = time()
-    reduced_PCA_scaled = PCA(n_components=NUM_COMP).fit_transform(data_X_scaled)
-    t_PCA = time() - t_start
-    
-    t_start = time()
-    reduced_ICA = FastICA(n_components=NUM_COMP, random_state=42).fit_transform(data_X_scaled)
-    t_ICA = time() - t_start
-    
-    t_start = time()
-    reduced_RP = random_projection.GaussianRandomProjection(n_components=NUM_COMP).fit_transform(data_X_scaled)
-    t_RP = time() - t_start
-    
-    t_start = time() #http://scikit-learn.org/stable/modules/decomposition.html#factor-analysis
-    reduced_FA = FactorAnalysis(n_components=NUM_COMP, random_state=42).fit_transform(data_X_scaled)
-    t_FA = time() - t_start 
-    
-    # Dict of kmeans objects
-    classifiers = {"unscaled":[kmeans, data_X, 0],
-                   "scaled":[kmeans_scaled, data_X_scaled, 0], 
-                   "PCA-unscaled":[kmeansPCA, reduced_PCA_unscaled, t_PCA_unscaled], 
-                   "PCA-scaled":[kmeansPCA_scaled, reduced_PCA_scaled, t_PCA],
-                   "ICA":[kmeansICA, reduced_ICA, t_ICA],
-                   "RP":[kmeansRP, reduced_RP, t_RP], 
-                   "FA":[kmeansFA, reduced_FA, t_FA]}
-    
-    # Analize clusters size
     cluster0_true = ((np.count_nonzero(data_Y == 0))/len(data_Y))*100 
     cluster1_true = ((np.count_nonzero(data_Y == 1))/len(data_Y))*100 
     print("cluster_true #0: {0:.2f}%\ncluster_true #1: {1:.2f}%\n".format(cluster0_true, cluster1_true))
-    
-    print(100 * '_')
-    print('% 10s' % 'Features' '    Cluster #0, %     Cluster #1, %   Accuracy, %     Silhouette      Time      TimeRed')
-    
-    fit_estimators(classifiers, data_Y, fileout)
-    
-    # Visualize the results on the reduced data
-    if NUM_COMP < 3:
-        colors = cycle('br')
-        for name, est_list in classifiers.items():
-            est, X, time = est_list
-            visualize(X, est, "K-means. Credit. {0}-reduced".format(name))
-
-    
-    
+    print("n_creditY: %d, \t n_samples: %d, \t n_features: %d"
+      % (n_creditY, n_samples, n_features))
+        
+    for data, out_file in data_type_list:
+        for NUM_ATTR in attr_list_full:
+            # Initialize k-means objects
+            kmeans = KMeans(init='k-means++', n_clusters=n_creditY, n_init=50)
+            kmeansPCA = KMeans(init='k-means++', n_clusters=n_creditY, n_init=50)
+            kmeansICA = KMeans(init='k-means++', n_clusters=n_creditY, n_init=50)
+            kmeansRP = KMeans(init='k-means++', n_clusters=n_creditY, n_init=50)
+            kmeansFA = KMeans(init='k-means++', n_clusters=n_creditY, n_init=50)
+        
+            
+            # run Dimension Reduction Algorithms
+                        
+            t_start = time()
+            reduced_PCA = PCA(n_components=NUM_ATTR).fit_transform(data)
+            t_PCA = time() - t_start
+            
+            t_start = time()
+            reduced_ICA = FastICA(n_components=NUM_ATTR, random_state=42).fit_transform(data)
+            t_ICA = time() - t_start
+            
+            t_start = time()
+            reduced_RP = random_projection.GaussianRandomProjection(n_components=NUM_ATTR).fit_transform(data)
+            t_RP = time() - t_start
+            
+            t_start = time() #http://scikit-learn.org/stable/modules/decomposition.html#factor-analysis
+            reduced_FA = FactorAnalysis(n_components=NUM_ATTR, random_state=42, max_iter=2000).fit_transform(data)
+            t_FA = time() - t_start 
+            
+            # Dict of kmeans objects
+            classifiers = {"unreduced":[kmeans, data_X, 0],
+                           "PCA":[kmeansPCA, reduced_PCA, t_PCA], 
+                           "ICA":[kmeansICA, reduced_ICA, t_ICA],
+                           "RP":[kmeansRP, reduced_RP, t_RP], 
+                           "FA":[kmeansFA, reduced_FA, t_FA]}
+            
+            print(100 * '_')
+            print('% 10s' % 'Features' '    Cluster #0, %     Cluster #1, %   Accuracy, %     Silhouette      Time      TimeRed')
+            
+            # Fit estimator, analize performance, and output data to *.csv
+            fit_estimators(classifiers, data_Y, out_file, NUM_ATTR)
+            
+            # Visualize the results on the reduced data
+            if NUM_ATTR < 2:
+                colors = cycle('br')
+                for name, est_list in classifiers.items():
+                    est, X, time = est_list
+                    visualize(X, est, "K-means. Credit. {0}-reduced".format(name))
     
     '''    
-    if NUM_COMP < 3:
+    if NUM_ATTR < 3:
         voronoi_vis(reduced_PCA_scaled, kmeansPCA_scaled, 0.02, "K-means on the Credit PCA-reduced data (scaled)")
         voronoi_vis(reduced_PCA_unscaled, kmeansPCA, 1000, "K-means on the Credit PCA-reduced data (unscaled)")
         voronoi_vis(reduced_ICA, kmeansICA, 0.005, "K-means on the Credit ICA-reduced data")

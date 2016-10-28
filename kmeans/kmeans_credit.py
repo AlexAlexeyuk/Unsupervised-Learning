@@ -12,16 +12,18 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import os
+import csv
 
 from sklearn import metrics
 from sklearn.cluster import KMeans
 from sklearn.datasets import load_digits
-from sklearn.decomposition import PCA, FastICA
+from sklearn.decomposition import PCA, FastICA, FactorAnalysis
 from sklearn.preprocessing import scale
 from sklearn.preprocessing import StandardScaler
 from sklearn.manifold import MDS
 from sklearn.manifold import TSNE
 from sklearn import random_projection
+from itertools import cycle
 
 
 
@@ -29,31 +31,6 @@ def get_path(rel_path):
     script_dir = os.path.dirname(__file__) #absolute dir the script is in
     abs_file_path = os.path.join(script_dir, rel_path)
     return abs_file_path
-
-# http://www.caner.io/purity-in-python.html
-def purity_score(clusters, classes):
-    """
-    Calculate the purity score for the given cluster assignments and ground truth classes
-    
-    :param clusters: the cluster assignments array
-    :type clusters: numpy.array
-    
-    :param classes: the ground truth classes
-    :type classes: numpy.array
-    
-    :returns: the purity score
-    :rtype: float
-    """
-    
-    A = np.c_[(clusters,classes)]
-
-    n_accurate = 0.
-
-    for j in np.unique(A[:,0]):
-        z = A[A[:,0] == j, 1]
-        x = np.argmax(np.bincount(z))
-        n_accurate += len(z[z == x])
-    return n_accurate / A.shape[0]
     
 def get_accuracy(clf, X, Y, name='clf'):
     correct = 0    
@@ -65,7 +42,6 @@ def get_accuracy(clf, X, Y, name='clf'):
     # since algorithm labels clusters  randomly, choose the largest cluster
     accuracy1 = correct/len(X)*100
     accuracy2 = 100 - accuracy1
-    #accuracy = "Accuracy_{0}: {1:.2f}%".format(name, max(accuracy1, accuracy2))
     return max(accuracy1, accuracy2)
     
 
@@ -73,44 +49,74 @@ def bench_k_means(estimator, name, data, labels):
     t_start = time()
     estimator.fit(data)
     t_spent = time() - t_start
+    
+    homogeneity = metrics.homogeneity_score(labels, estimator.labels_)
+    completeness = metrics.completeness_score(labels, estimator.labels_)
+    v_measure = metrics.v_measure_score(labels, estimator.labels_)
+    ari = metrics.adjusted_rand_score(labels, estimator.labels_)
+    ami = metrics.adjusted_mutual_info_score(labels,  estimator.labels_)    
+    
     print('% 11s   %.2fs    %.2E   %.3f   %.3f   %.3f   %.3f   %.3f'
-          % (name, (t_spent), estimator.inertia_,
-             metrics.homogeneity_score(labels, estimator.labels_),
-             metrics.completeness_score(labels, estimator.labels_),
-             metrics.v_measure_score(labels, estimator.labels_),
-             metrics.adjusted_rand_score(labels, estimator.labels_),
-             metrics.adjusted_mutual_info_score(labels,  estimator.labels_)))
+          % (name, t_spent, estimator.inertia_, homogeneity,
+             completeness, v_measure, ari, ami))
              #metrics.silhouette_score(data, estimator.labels_,
              #                         metric='euclidean',
              #                         sample_size=sample_size)))
+   
                                       
-def print_clusters(classifiers):
-    for name, clf_list in classifiers.items():
-        clf, data_used = clf_list
-        #print("\n" + name + "\n" + str(40 * '_') + "\n")
-        cluster0 = ((np.count_nonzero(clf.labels_ == 0))/len(data_used))*100  
-        cluster1 = ((np.count_nonzero(clf.labels_ == 1))/len(data_used))*100
-        #print("cluster_kmean #0: {0:.2f}%\ncluster_kmean #1: {1:.2f}%".format(cluster0, cluster1))
-        accuracy = get_accuracy(clf, data_used, data_Y, name)
-    
-        print('%11s      %.2f           %.2f         %.2f         %.3f'
-          % (name, cluster0, cluster1, accuracy, 
-             metrics.silhouette_score(data_used, clf.labels_,
+def fit_estimators(estimators, labels, filename):
+    datarows = []
+    for name, est_list in estimators.items():
+        estimator, data_used, time_red = est_list
+        
+        t_start = time()
+        estimator.fit(data_used)
+        t_fit = time() - t_start
+        
+        cluster0 = ((np.count_nonzero(estimator.labels_ == 0))/len(data_used))*100  
+        cluster1 = ((np.count_nonzero(estimator.labels_ == 1))/len(data_used))*100
+        cluster_num0 = max(cluster0, cluster1)
+        cluster_num1 = min(cluster0, cluster1)
+        
+        accuracy = get_accuracy(estimator, data_used, labels, name)
+        
+        homogeneity = metrics.homogeneity_score(labels, estimator.labels_)
+        completeness = metrics.completeness_score(labels, estimator.labels_)
+        v_measure = metrics.v_measure_score(labels, estimator.labels_)
+        ari = metrics.adjusted_rand_score(labels, estimator.labels_)
+        ami = metrics.adjusted_mutual_info_score(labels,  estimator.labels_)  
+        silhouette = metrics.silhouette_score(data_used, estimator.labels_,
                                       metric='euclidean',
-                                      sample_size=sample_size)))
+                                      sample_size=sample_size)        
+        
+        print('%11s      %.2f           %.2f         %.2f          %.3f          %.2fs        %.2fs'
+          % (name, cluster_num0, cluster_num1, accuracy, silhouette, t_fit, time_red))
+    
+        datarows.append([name, NUM_COMP, "{:.2f}".format(cluster_num0), "{:.2f}".format(cluster_num1), 
+                         "{:.2f}".format(accuracy), "{:.3f}".format(silhouette), "{:.2f}".format(t_fit), 
+                         "{:.2f}".format(time_red),"{:.2E}".format(estimator.inertia_), homogeneity, 
+                         completeness, v_measure, ari, ami])
+                         
+    is_file = os.path.exists(filename)
+    with open(filename, 'ab') as csvfile:
+        writer = csv.writer(csvfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+        if not is_file:        
+            header = "Name,#Features,Cluster#0,Cluster#1,Accuracy,Silhouette,TimeKmeans,TimeRed,inertia,homo,compl,v-meas,ARI,AMI".split(",")
+            writer.writerow(header)    
+        writer.writerows(datarows)
                                       
 
-def visualize(reduced_PCA_unscaled, clf, h, title):
+def voronoi_vis(X, est, h, title):
     # Step size of the mesh. Decrease to increase the quality of the VQ.
     #h = 0.02     # point in the mesh [x_min, x_max]x[y_min, y_max].
     
     # Plot the decision boundary. For that, we will assign a color to each
-    x_min, x_max = reduced_PCA_unscaled[:, 0].min() - 1, reduced_PCA_unscaled[:, 0].max() + 1
-    y_min, y_max = reduced_PCA_unscaled[:, 1].min() - 1, reduced_PCA_unscaled[:, 1].max() + 1
+    x_min, x_max = X[:, 0].min() - 1, X[:, 0].max() + 1
+    y_min, y_max = X[:, 1].min() - 1, X[:, 1].max() + 1
     xx, yy = np.meshgrid(np.arange(x_min, x_max, h), np.arange(y_min, y_max, h))
     
     # Obtain labels for each point in mesh. Use last trained model.
-    Z = clf.predict(np.c_[xx.ravel(), yy.ravel()])
+    Z = est.predict(np.c_[xx.ravel(), yy.ravel()])
     
     # Put the result into a color plot
     Z = Z.reshape(xx.shape)
@@ -121,9 +127,9 @@ def visualize(reduced_PCA_unscaled, clf, h, title):
                cmap=plt.cm.Paired,
                aspect='auto', origin='lower')
     
-    plt.plot(reduced_PCA_unscaled[:, 0], reduced_PCA_unscaled[:, 1], 'k.', markersize=2)
+    plt.plot(X[:, 0], X[:, 1], 'k.', markersize=2)
     # Plot the centroids as a white X
-    centroids = clf.cluster_centers_
+    centroids = est.cluster_centers_
     plt.scatter(centroids[:, 0], centroids[:, 1],
                 marker='x', s=169, linewidths=3,
                 color='w', zorder=10)
@@ -133,15 +139,32 @@ def visualize(reduced_PCA_unscaled, clf, h, title):
     plt.xticks(())
     plt.yticks(())
     plt.show()
+    
+def visualize(X, est, title): 
+        plt.figure()
+        for k, col in zip(range(n_creditY), colors):
+            my_members = est.labels_ == k
+            plt.plot(X[my_members, 0], X[my_members, 1], col + 'o',  markersize=2)
+                #cluster_center = est.cluster_centers_[k]            
+            #plt.plot(cluster_center[0], cluster_center[1], 'o', markerfacecolor=col,
+            #         markeredgecolor='k', markersize=14)
+        plt.title(name)
+        plt.show()
+        #plt.savefig("{0}_{1}_attr.jpeg".format(name, n_features))
+        
 
 if __name__ == "__main__":
     np.random.seed(42)
-    NUM_COMP = 6
+    NUM_COMP = 10
+    
+    attrArray = [2, 6, 10]
+    
+    fileout = "credit_kmeans.csv"
     
     full_df = pd.read_csv(get_path("../../datasets/credit_full.csv"))
     small_df = pd.read_csv(get_path("../../datasets/credit_test_num.csv"))
     
-    # 30% of dataste
+    # 30% of dataset
     #data_X = np.array(small_df.drop(['LIMIT_BAL','DEFAULT', 'SEX','EDUCATION','MARRIAGE','AGE','PAY_0','PAY_2','PAY_3','PAY_4','PAY_5','PAY_6'], 1))
     #data_Y = np.array(small_df['DEFAULT'])
     
@@ -151,20 +174,20 @@ if __name__ == "__main__":
     data_Y = np.array(full_df['DEFAULT'])
     
     # Scaling
-    #scaler = StandardScaler()
-    #data_X_scaled = scaler.fit_transform(data_X)    
-    data_X_scaled = scale(data_X)
+    data_X_scaled = StandardScaler().fit_transform(data_X)   
+    #data_X_scaled = scale(data_X)
     #data_X_scaled = data_X 
-    
+
     #credit
     n_samples, n_features = data_X.shape
     n_creditY = len(np.unique(data_Y))
     #n_creditY = 4
-    sample_size = 1000
+    sample_size = 5000
     
     print("n_creditY: %d, \t n_samples: %d, \t n_features: %d"
       % (n_creditY, n_samples, n_features))
     
+        
     # Initialize k-means objects
     kmeans = KMeans(init='k-means++', n_clusters=n_creditY, n_init=50)
     kmeans_scaled = KMeans(init='k-means++', n_clusters=n_creditY, n_init=50)
@@ -172,10 +195,13 @@ if __name__ == "__main__":
     kmeansPCA_scaled = KMeans(init='k-means++', n_clusters=n_creditY, n_init=50)
     kmeansICA = KMeans(init='k-means++', n_clusters=n_creditY, n_init=50)
     kmeansRP = KMeans(init='k-means++', n_clusters=n_creditY, n_init=50)
+    kmeansFA = KMeans(init='k-means++', n_clusters=n_creditY, n_init=50)
 
     
     # run Dimension Reduction Algorithms
+    t_start = time()
     reduced_PCA_unscaled = PCA(n_components=NUM_COMP).fit_transform(data_X)
+    t_PCA_unscaled = time() - t_start
     
     t_start = time()
     reduced_PCA_scaled = PCA(n_components=NUM_COMP).fit_transform(data_X_scaled)
@@ -189,41 +215,86 @@ if __name__ == "__main__":
     reduced_RP = random_projection.GaussianRandomProjection(n_components=NUM_COMP).fit_transform(data_X_scaled)
     t_RP = time() - t_start
     
-    classifiers = {"unscaled":[kmeans, data_X],
-                   "scaled":[kmeans_scaled, data_X_scaled], 
-                   "PCA-unscaled":[kmeansPCA, reduced_PCA_unscaled], 
-                   "PCA-scaled":[kmeansPCA_scaled, reduced_PCA_scaled],
-                   "ICA":[kmeansICA, reduced_ICA],
-                   "RP":[kmeansRP, reduced_RP]}
+    t_start = time() #http://scikit-learn.org/stable/modules/decomposition.html#factor-analysis
+    reduced_FA = FactorAnalysis(n_components=NUM_COMP, random_state=42).fit_transform(data_X_scaled)
+    t_FA = time() - t_start 
     
-    # Generate clusters
-    print(79 * '_')
-    print('% 12s' % 'init      '
-          '    time      inertia   homo    compl  v-meas     ARI     AMI  silhouette')
-    for name, clf_list in classifiers.items():     
-        clf, data_used = clf_list
-        bench_k_means(clf, name, data_used, data_Y)
-    print(79 * '_')
+    # Dict of kmeans objects
+    classifiers = {"unscaled":[kmeans, data_X, 0],
+                   "scaled":[kmeans_scaled, data_X_scaled, 0], 
+                   "PCA-unscaled":[kmeansPCA, reduced_PCA_unscaled, t_PCA_unscaled], 
+                   "PCA-scaled":[kmeansPCA_scaled, reduced_PCA_scaled, t_PCA],
+                   "ICA":[kmeansICA, reduced_ICA, t_ICA],
+                   "RP":[kmeansRP, reduced_RP, t_RP], 
+                   "FA":[kmeansFA, reduced_FA, t_FA]}
     
     # Analize clusters size
     cluster0_true = ((np.count_nonzero(data_Y == 0))/len(data_Y))*100 
     cluster1_true = ((np.count_nonzero(data_Y == 1))/len(data_Y))*100 
     print("cluster_true #0: {0:.2f}%\ncluster_true #1: {1:.2f}%\n".format(cluster0_true, cluster1_true))
-    print(79 * '_')
-    print('% 10s' % 'Features' '    Cluster #0, %     Cluster #1, %   Accuracy, %     Silhouette')
     
-    # print statistics
-    print_clusters(classifiers)
-    print("\nPCA_time {0:.2f} \nICA_time {1:.2f} \nRP_time {1:.2f}".format(t_PCA, t_ICA, t_RP))
+    print(100 * '_')
+    print('% 10s' % 'Features' '    Cluster #0, %     Cluster #1, %   Accuracy, %     Silhouette      Time      TimeRed')
     
-    # Visualize the results on PCA-reduced data
+    fit_estimators(classifiers, data_Y, fileout)
+    
+    # Visualize the results on the reduced data
     if NUM_COMP < 3:
-        visualize(reduced_PCA_scaled, kmeansPCA_scaled, 0.02, "K-means on the Credit PCA-reduced data (scaled)")
-        visualize(reduced_PCA_unscaled, kmeansPCA, 1000, "K-means on the Credit PCA-reduced data (unscaled)")
-        visualize(reduced_ICA, kmeansICA, 0.005, "K-means on the Credit ICA-reduced data")
-    #visualize(reduced_RP, kmeansRP, 0.02, "K-means on the Credit RP-reduced data")
-    
+        colors = cycle('br')
+        for name, est_list in classifiers.items():
+            est, X, time = est_list
+            visualize(X, est, "K-means. Credit. {0}-reduced".format(name))
 
+    
+    
+    
+    '''    
+    if NUM_COMP < 3:
+        voronoi_vis(reduced_PCA_scaled, kmeansPCA_scaled, 0.02, "K-means on the Credit PCA-reduced data (scaled)")
+        voronoi_vis(reduced_PCA_unscaled, kmeansPCA, 1000, "K-means on the Credit PCA-reduced data (unscaled)")
+        voronoi_vis(reduced_ICA, kmeansICA, 0.005, "K-means on the Credit ICA-reduced data")
+        voronoi_vis(reduced_PCA_scaled, kmeansPCA_scaled, 0.02, "K-means on the Credit FA-reduced data (scaled)")
+        voronoi_vis(reduced_RP, kmeansRP, 0.02, "K-means on the Credit RP-reduced data")
+        voronoi_vis(reduced_FA, kmeansFA, 0.02, "K-means on the Credit FA-reduced data")
+    '''
+    
+    '''
+    # Subplots
+    colors = np.array([x for x in 'bgrcmykbgrcmykbgrcmykbgrcmyk'])
+    colors = np.hstack([colors] * 20)
+    
+    plot_num = 1
+    plt.figure(figsize=(16, 12))    
+    
+    for name, clf_list in classifiers.items():
+        clf, X, time = clf_list
+        #if hasattr(clf, 'labels_'):
+        y_pred = clf.labels_.astype(np.int)
+        #else:
+        #    y_pred = clf.predict(X)
+        
+        # plot
+        plt.subplot(3, 3, plot_num)
+        #if i_dataset == 0:
+        plt.title(name, size=18)
+        plt.scatter(X[:, 0], X[:, 1], color=colors[y_pred].tolist(), s=2)
+        
+        
+        x_min, x_max = X[:, 0].min() - 1, X[:, 0].max() + 1
+        y_min, y_max = X[:, 1].min() - 1, X[:, 1].max() + 1
+        #plt.xlim(x_min, x_max)
+        #plt.ylim(y_min, y_max)
+        #plt.xlim(-2, 2)
+        #plt.ylim(-2, 2)
+        plt.xticks(())
+        plt.yticks(())
+        #plt.text(.99, .01, ('%.2fs' % (0.01)).lstrip('0'),
+        #         transform=plt.gca().transAxes, size=15,
+        #         horizontalalignment='right')
+        plot_num += 1
+
+    plt.show()
+    '''
     
     '''
     # Confusion Matrix
@@ -242,4 +313,9 @@ if __name__ == "__main__":
         index = kmeans.labels_ == i
         plt.plot(data_X[index,0], data_X[index,1], 'o')
     plt.show()
+    '''
+    
+    '''
+    #a = np.asarray([ [1,2,3], [4,5,6], [7,8,9] ])
+    #np.savetxt("foo.csv", a, delimiter=",")
     '''

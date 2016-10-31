@@ -8,11 +8,13 @@ from __future__ import division #division of integers
 print(__doc__)
 
 from time import time
+from scipy import stats
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import os
 import csv
+
 
 from sklearn import metrics
 from sklearn.cluster import KMeans
@@ -24,8 +26,7 @@ from sklearn.manifold import MDS
 from sklearn.manifold import TSNE
 from sklearn import random_projection
 from itertools import cycle
-
-
+from sklearn.metrics import roc_auc_score
 
 def get_path(rel_path):
     script_dir = os.path.dirname(__file__) #absolute dir the script is in
@@ -44,27 +45,57 @@ def get_accuracy(clf, X, Y, name='clf'):
     accuracy2 = 100 - accuracy1
     return max(accuracy1, accuracy2)
 
-def plot_pc_variance(data):
+def get_auc_score(clf, X, Y):   
+    pred_Y = clf.predict(X)
+    auc = roc_auc_score(Y, pred_Y)
+    # since algorithm labels clusters  randomly, choose the largest cluster
+    return auc
+
+def plot_variance_retained(data_X):
     pca = PCA()
-    pca.fit(data)
+    pca.fit(data_X)
+    
+    #evector = pca.components_
+    evals = pca.explained_variance_
+    evals_ratio = pca.explained_variance_ratio_
     
     #Cumulative Variance explains
-    var1=np.cumsum(np.round(pca.explained_variance_ratio_, decimals=4)*100)
-    print var1
+    cum_variance = np.cumsum(np.round(pca.explained_variance_ratio_, decimals=4)*100)
+    print "PCA. Number of componenets selection"
+    print(80 * '_')
+    print "Variance explained:\n{0}\nEigenvalues:\n{1}\nEigenvalues_ratio:\n{2}".format(cum_variance, evals, evals_ratio)
     
-    plt.plot(var1)
+    plt.plot(cum_variance)
     plt.ylim(20, 105)
     plt.xlim(0, 23)
-    plt.ylabel("Variance %")
+    plt.ylabel("Variance Explained %")
     plt.xlabel("Principal Comonents Number")
     plt.grid(b=True, which='major', color="#a0a0a0", linestyle='-')
     #plt.grid(b=True, which='minor', color="#a0a0a0", linestyle='-')
     plt.title("Principal Components vs. Variance")
     plt.minorticks_on()
+      
+    
+def plot_K_vs_Silhouette(data_X, k_list):
+    # set Number of Cluster
+    s = []
+    for n_clusters in k_list:
+        kmeans = KMeans(init='k-means++', n_clusters=n_clusters, n_init=50)
+        kmeans.fit(data_X)
+        
+        #append silhouette_score
+        s.append(metrics.silhouette_score(data_X, kmeans.labels_, metric='euclidean', sample_size=silhouette_sample))
+    
+    # plot the result
+    plt.plot(k_list, s)
+    plt.ylabel("Silhouette Score")
+    plt.xlabel("Number of Clusters K")
+    plt.title("Silhouette vs. K")
+    plt.show()
 
-def bench_k_means(estimator, name, data, labels):
+def bench_k_means(estimator, name, data_X, labels):
     t_start = time()
-    estimator.fit(data)
+    estimator.fit(data_X)
     t_spent = time() - t_start
     
     homogeneity = metrics.homogeneity_score(labels, estimator.labels_)
@@ -76,12 +107,59 @@ def bench_k_means(estimator, name, data, labels):
     print('% 11s   %.2fs    %.2E   %.3f   %.3f   %.3f   %.3f   %.3f'
           % (name, t_spent, estimator.inertia_, homogeneity,
              completeness, v_measure, ari, ami))
-             #metrics.silhouette_score(data, estimator.labels_,
+             #metrics.silhouette_score(data_X, estimator.labels_,
              #                         metric='euclidean',
              #                         sample_size=sample_size)))
-   
+
+def grid_traversal_k_attr():
+    for K in range(2, 22, 2):
+        for NUM_ATTR in attr_list_full:
+            # Initialize k-means objects
+            kmeans = KMeans(init='k-means++', n_clusters=K, n_init=50)
+            kmeansPCA = KMeans(init='k-means++', n_clusters=K, n_init=50)
+            kmeansICA = KMeans(init='k-means++', n_clusters=K, n_init=50)
+            kmeansRP = KMeans(init='k-means++', n_clusters=K, n_init=50)
+            kmeansFA = KMeans(init='k-means++', n_clusters=K, n_init=50)
+            
+            # run Dimensionality Reduction Algorithms                        
+            t_start = time()
+            reduced_PCA = PCA(n_components=NUM_ATTR).fit_transform(data_X)
+            t_PCA = time() - t_start
+            
+            t_start = time()
+            reduced_ICA = FastICA(n_components=NUM_ATTR, random_state=42).fit_transform(data_X)
+            t_ICA = time() - t_start
+            
+            t_start = time()
+            reduced_RP = random_projection.GaussianRandomProjection(n_components=NUM_ATTR).fit_transform(data_X)
+            t_RP = time() - t_start
+            
+            t_start = time() #http://scikit-learn.org/stable/modules/decomposition.html#factor-analysis
+            reduced_FA = FactorAnalysis(n_components=NUM_ATTR, random_state=37, max_iter=3000).fit_transform(data_X)
+            t_FA = time() - t_start
+            
+            # Dict of list containing: kmeans object, reduced data_X, time for reduction 
+            classifiers = {"plain":[kmeans, data_X, 0],
+                           "PCA":[kmeansPCA, reduced_PCA, t_PCA], 
+                           "ICA":[kmeansICA, reduced_ICA, t_ICA],
+                           "RP":[kmeansRP, reduced_RP, t_RP], 
+                           "FA":[kmeansFA, reduced_FA, t_FA]}
+            
+            print(100 * '_')
+            print('% 10s' % 'Features' '    Cluster #0, %     Cluster #1, %   Accuracy, %     Silhouette    AUC       Time      TimeRed')
+            
+            out_file = "credit_kmeans_attr_K.csv"
+            # Fit estimator, analize performance, and output data_X to *.csv
+            fit_estimators(classifiers, data_Y, out_file, NUM_ATTR, K)
+            
+            # Visualize the results on the reduced data
+            if NUM_ATTR < 2:
+                #colors = cycle('br')
+                for name, est_list in classifiers.items():
+                    est, X, time = est_list
+                    visualize(X, est, "K-means. Credit. {0}-reduced".format(name))
                                       
-def fit_estimators(estimators, labels, filename, NUM_ATTR):
+def fit_estimators(estimators, labels, filename, NUM_ATTR, K):
     datarows = []
     for name, est_list in estimators.items():
         estimator, data_used, time_reduction = est_list
@@ -98,6 +176,7 @@ def fit_estimators(estimators, labels, filename, NUM_ATTR):
         cluster_num1 = min(cluster0, cluster1)
         
         accuracy = get_accuracy(estimator, data_used, labels, name)
+        auc = get_auc_score(estimator, data_used, labels)
         
         homogeneity = metrics.homogeneity_score(labels, estimator.labels_)
         completeness = metrics.completeness_score(labels, estimator.labels_)
@@ -108,19 +187,20 @@ def fit_estimators(estimators, labels, filename, NUM_ATTR):
                                       metric='euclidean',
                                       sample_size=silhouette_sample)        
         
-        print('%11s      %.2f           %.2f         %.2f          %.3f          %.2fs        %.2fs'
-          % (name, cluster_num0, cluster_num1, accuracy, silhouette, t_fit, time_reduction))
+        print('%11s      %.2f           %.2f         %.2f          %.3f        %.2f       %.2fs        %.2fs'
+          % (name, cluster_num0, cluster_num1, accuracy, silhouette, auc, t_fit, time_reduction))
     
-        datarows.append([name, NUM_ATTR, "{:.2f}".format(cluster_num0), "{:.2f}".format(cluster_num1), 
+        datarows.append([name, NUM_ATTR, K, "{:.2f}".format(cluster_num0), "{:.2f}".format(cluster_num1), 
                          "{:.2f}".format(accuracy), "{:.3f}".format(silhouette), "{:.2f}".format(t_fit), 
                          "{:.2f}".format(time_reduction),"{:.2E}".format(estimator.inertia_), homogeneity, 
-                         completeness, v_measure, ari, ami])
+                         completeness, v_measure, ari, ami, "{:.2f}".format(auc)])
                          
     is_file = os.path.exists(filename)
     with open(filename, 'ab') as csvfile:
         writer = csv.writer(csvfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
         if not is_file:        
-            header = "Name,#Features,Cluster#0,Cluster#1,Accuracy,Silhouette,TimeKmeans,TimeRed,inertia,homo,compl,v-meas,ARI,AMI".split(",")
+            header = "Name,#Features,Clusters#,Cluster#0,Cluster#1,Accuracy,Silhouette,\
+            TimeKmeans,TimeRed,inertia,homo,compl,v-meas,ARI,AMI,AUC".split(",")
             writer.writerow(header)    
         writer.writerows(datarows)
                                       
@@ -160,6 +240,7 @@ def voronoi_vis(X, est, h, title):
     plt.show()
     
 def visualize(X, est, title): 
+        colors = cycle('br')        
         plt.figure()
         for k, col in zip(range(n_creditY), colors):
             my_members = est.labels_ == k
@@ -167,98 +248,105 @@ def visualize(X, est, title):
                 #cluster_center = est.cluster_centers_[k]            
             #plt.plot(cluster_center[0], cluster_center[1], 'o', markerfacecolor=col,
             #         markeredgecolor='k', markersize=14)
-        plt.title(name)
+        plt.title(title)
         plt.show()
         #plt.savefig("{0}_{1}_attr.jpeg".format(name, n_features))
+
+def find_ICA_comp():
+    reduced_ICA = FastICA(random_state=42).fit_transform(data_X)
+    
+    #calc kurtosis for each feature
+    kurtosis_list = []
+    for i in range(0, len(reduced_ICA[0])):
+        kurtosis = stats.kurtosis(reduced_ICA[:,i], axis=0, fisher=True, bias=True)
+        kurtosis_list.append(kurtosis)
+    
+    print "\nKurtosis by a companent:\n{0}".format(kurtosis_list)
+    
+    # select components to remove where kurtosis < 100   
+    remove_components = []
+    for i in range(0, len(kurtosis_list)):
+        if abs(kurtosis_list[i]) <= 100:
+            #selected_ICA.append(reduced_ICA[:,0])
+            remove_components.append(i)
+    
+    # remove components that didn't pass threshold
+    reduced_ICA_new = np.delete(reduced_ICA, remove_components, 1)
         
+    kurtosis_list_new = []
+    for i in range(0, len(reduced_ICA_new[0])):
+        kurtosis = stats.kurtosis(reduced_ICA_new[:,i], axis=0, fisher=True, bias=True)
+        kurtosis_list_new.append(kurtosis)
+    
+    print "\nKurtosis after removal:\n{0}".format(kurtosis_list_new) 
+    return reduced_ICA_new
+    
+def find_RP_comp():
+    pass
+
+def find_PCA_comp():    
+    pca = PCA()
+    pca.fit(data_X)
+    
+    #Cumulative Variance explains
+    cum_varuiance = np.cumsum(np.round(pca.explained_variance_ratio_, decimals=4)*100)
+    print cum_varuiance
+    
+    plt.plot(cum_varuiance)
+    plt.ylim(20, 105)
+    plt.xlim(0, 23)
+    plt.ylabel("Variance Explained %")
+    plt.xlabel("Principal Comonents Number")
+    plt.grid(b=True, which='major', color="#a0a0a0", linestyle='-')
+    #plt.grid(b=True, which='minor', color="#a0a0a0", linestyle='-')
+    plt.title("Principal Components vs. Variance")
+    plt.minorticks_on()          
 
 if __name__ == "__main__":
     np.random.seed(42)
     NUM_ATTR = 2
     silhouette_sample = 15000
     attr_list_full = [2, 5, 10, 15, 20]
-    attr_list_reduced = [2, 6, 10]
-    
+    #attr_list_reduced = [2, 6, 10]
     #output_file = "credit_kmeans_23attr.csv"
     
     full_df = pd.read_csv(get_path("../../datasets/credit_full.csv"))
     small_df = pd.read_csv(get_path("../../datasets/credit_test_num.csv"))
     
     # 30% of dataset
-    #data_X = np.array(small_df.drop(['LIMIT_BAL','DEFAULT', 'SEX','EDUCATION','MARRIAGE','AGE','PAY_0','PAY_2','PAY_3','PAY_4','PAY_5','PAY_6'], 1))
+    #data_X = np.array(small_df.drop(['LIMIT_BAL'], 1))
     #data_Y = np.array(small_df['DEFAULT'])
     
     # convert the "quality" label column to numpy arrays
     #data_X = np.array(full_df.drop(['LIMIT_BAL','DEFAULT', 'SEX','EDUCATION','MARRIAGE','AGE','PAY_0','PAY_2','PAY_3','PAY_4','PAY_5','PAY_6'], 1))
-    data_X = np.array(full_df.drop(['DEFAULT'], 1))
+    data_X_raw = np.array(full_df.drop(['DEFAULT'], 1))
     data_Y = np.array(full_df['DEFAULT'])
     
     # Scaling
     #data_X_scaled = StandardScaler().fit_transform(data_X)   
-    data_X_scaled = scale(data_X)
+    data_X_scaled = scale(data_X_raw)
     #data_X_scaled = data_X 
-    data_type_list = [
-                       [data_X_scaled, "credit_kmeans_23attr.csv"],
-                       [data_X, "credit_kmeans_23attr_unscaled.csv"]
-                     ]    
+    data_X = data_X_scaled
     
     #Data Statistics
-    n_samples, n_features = data_X.shape
+    n_samples, n_features = data_X_raw.shape
     n_creditY = len(np.unique(data_Y))
+    #n_creditY =
     cluster0_true = ((np.count_nonzero(data_Y == 0))/len(data_Y))*100 
     cluster1_true = ((np.count_nonzero(data_Y == 1))/len(data_Y))*100 
     print("cluster_true #0: {0:.2f}%\ncluster_true #1: {1:.2f}%\n".format(cluster0_true, cluster1_true))
-    print("n_creditY: %d, \t n_samples: %d, \t n_features: %d"
-      % (n_creditY, n_samples, n_features))
-        
-    for data, out_file in data_type_list:
-        for NUM_ATTR in attr_list_full:
-            # Initialize k-means objects
-            kmeans = KMeans(init='k-means++', n_clusters=n_creditY, n_init=50)
-            kmeansPCA = KMeans(init='k-means++', n_clusters=n_creditY, n_init=50)
-            kmeansICA = KMeans(init='k-means++', n_clusters=n_creditY, n_init=50)
-            kmeansRP = KMeans(init='k-means++', n_clusters=n_creditY, n_init=50)
-            kmeansFA = KMeans(init='k-means++', n_clusters=n_creditY, n_init=50)
-        
-            
-            # run Dimension Reduction Algorithms
-                        
-            t_start = time()
-            reduced_PCA = PCA(n_components=NUM_ATTR).fit_transform(data)
-            t_PCA = time() - t_start
-            
-            t_start = time()
-            reduced_ICA = FastICA(n_components=NUM_ATTR, random_state=42).fit_transform(data)
-            t_ICA = time() - t_start
-            
-            t_start = time()
-            reduced_RP = random_projection.GaussianRandomProjection(n_components=NUM_ATTR).fit_transform(data)
-            t_RP = time() - t_start
-            
-            t_start = time() #http://scikit-learn.org/stable/modules/decomposition.html#factor-analysis
-            reduced_FA = FactorAnalysis(n_components=NUM_ATTR, random_state=42, max_iter=2000).fit_transform(data)
-            t_FA = time() - t_start 
-            
-            # Dict of kmeans objects
-            classifiers = {"unreduced":[kmeans, data_X, 0],
-                           "PCA":[kmeansPCA, reduced_PCA, t_PCA], 
-                           "ICA":[kmeansICA, reduced_ICA, t_ICA],
-                           "RP":[kmeansRP, reduced_RP, t_RP], 
-                           "FA":[kmeansFA, reduced_FA, t_FA]}
-            
-            print(100 * '_')
-            print('% 10s' % 'Features' '    Cluster #0, %     Cluster #1, %   Accuracy, %     Silhouette      Time      TimeRed')
-            
-            # Fit estimator, analize performance, and output data to *.csv
-            fit_estimators(classifiers, data_Y, out_file, NUM_ATTR)
-            
-            # Visualize the results on the reduced data
-            if NUM_ATTR < 2:
-                colors = cycle('br')
-                for name, est_list in classifiers.items():
-                    est, X, time = est_list
-                    visualize(X, est, "K-means. Credit. {0}-reduced".format(name))
+    print("n_creditY: %d, \t n_samples: %d, \t n_features: %d" % (n_creditY, n_samples, n_features))
     
+    
+    #grid_traversal_k_attr()
+    
+    #find_PCA_comp()
+    selected_ICA = find_ICA_comp()
+    
+    
+
+    
+    #######################################################################################################
     '''    
     if NUM_ATTR < 3:
         voronoi_vis(reduced_PCA_scaled, kmeansPCA_scaled, 0.02, "K-means on the Credit PCA-reduced data (scaled)")
@@ -305,19 +393,7 @@ if __name__ == "__main__":
         plot_num += 1
 
     plt.show()
-    '''
-    
-    '''
-    # Confusion Matrix
-    print(pd.crosstab(kmeans.labels_, data_Y))
-    print_accuracy(kmeans, data_X, data_Y, name='kmeans')
-    print("data_Y = 0: " + str(np.count_nonzero(data_Y == 0)) )
-    print("\n")
-    
-    print(pd.crosstab(kmeansPCA.labels_, data_Y))   
-    print_accuracy(kmeansPCA, reduced_PCA_unscaled, data_Y, name='kmeansPCA')
-    '''
-    ###############################################################################
+    '''    
     
     '''
     for i in set(kmeans.labels_):
@@ -329,4 +405,15 @@ if __name__ == "__main__":
     '''
     #a = np.asarray([ [1,2,3], [4,5,6], [7,8,9] ])
     #np.savetxt("foo.csv", a, delimiter=",")
+    '''
+    
+    '''
+    # Confusion Matrix
+    print(pd.crosstab(kmeans.labels_, data_Y))
+    print_accuracy(kmeans, data_X, data_Y, name='kmeans')
+    print("data_Y = 0: " + str(np.count_nonzero(data_Y == 0)) )
+    print("\n")
+    
+    print(pd.crosstab(kmeansPCA.labels_, data_Y))   
+    print_accuracy(kmeansPCA, reduced_PCA_unscaled, data_Y, name='kmeansPCA')
     '''

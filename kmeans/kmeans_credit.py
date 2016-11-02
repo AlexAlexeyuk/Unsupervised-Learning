@@ -12,6 +12,7 @@ from scipy import stats
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 import os
 import csv
 
@@ -48,7 +49,6 @@ def get_accuracy(clf, X, Y, name='clf'):
 def get_auc_score(clf, X, Y):   
     pred_Y = clf.predict(X)
     auc = roc_auc_score(Y, pred_Y)
-    # since algorithm labels clusters  randomly, choose the largest cluster
     return auc
 
 def plot_variance_retained(data_X):
@@ -74,7 +74,11 @@ def plot_variance_retained(data_X):
     #plt.grid(b=True, which='minor', color="#a0a0a0", linestyle='-')
     plt.title("Principal Components vs. Variance")
     plt.minorticks_on()
-      
+
+def print_statistics(X, Y, name):
+    samples_num, features_num = X.shape
+    labels_num = len(np.unique(Y))
+    print("%s:\nlabels: %d, \t samples: %d, \t features: %d\n" % (name, labels_num, samples_num, features_num))    
     
 def plot_K_vs_Silhouette(data_X, k_list):
     # set Number of Cluster
@@ -111,9 +115,9 @@ def bench_k_means(estimator, name, data_X, labels):
              #                         metric='euclidean',
              #                         sample_size=sample_size)))
 
-def grid_traversal_k_attr():
+def grid_traversal_k_attr(data_X, data_Y, attributes):
     for K in range(2, 22, 2):
-        for NUM_ATTR in attr_list_full:
+        for NUM_ATTR in attributes:
             # Initialize k-means objects
             kmeans = KMeans(init='k-means++', n_clusters=K, n_init=50)
             kmeansPCA = KMeans(init='k-means++', n_clusters=K, n_init=50)
@@ -139,7 +143,7 @@ def grid_traversal_k_attr():
             t_FA = time() - t_start
             
             # Dict of list containing: kmeans object, reduced data_X, time for reduction 
-            classifiers = {"plain":[kmeans, data_X, 0],
+            estimators = {"plain":[kmeans, data_X, 0],
                            "PCA":[kmeansPCA, reduced_PCA, t_PCA], 
                            "ICA":[kmeansICA, reduced_ICA, t_ICA],
                            "RP":[kmeansRP, reduced_RP, t_RP], 
@@ -150,12 +154,12 @@ def grid_traversal_k_attr():
             
             out_file = "credit_kmeans_attr_K.csv"
             # Fit estimator, analize performance, and output data_X to *.csv
-            fit_estimators(classifiers, data_Y, out_file, NUM_ATTR, K)
+            fit_estimators(estimators, data_Y, out_file, NUM_ATTR, K)
             
             # Visualize the results on the reduced data
             if NUM_ATTR < 2:
                 #colors = cycle('br')
-                for name, est_list in classifiers.items():
+                for name, est_list in estimators.items():
                     est, X, time = est_list
                     visualize(X, est, "K-means. Credit. {0}-reduced".format(name))
                                       
@@ -176,7 +180,8 @@ def fit_estimators(estimators, labels, filename, NUM_ATTR, K):
         cluster_num1 = min(cluster0, cluster1)
         
         accuracy = get_accuracy(estimator, data_used, labels, name)
-        auc = get_auc_score(estimator, data_used, labels)
+        #auc = get_auc_score(estimator, data_used, labels)
+        auc = 0
         
         homogeneity = metrics.homogeneity_score(labels, estimator.labels_)
         completeness = metrics.completeness_score(labels, estimator.labels_)
@@ -239,112 +244,226 @@ def voronoi_vis(X, est, h, title):
     plt.yticks(())
     plt.show()
     
-def visualize(X, est, title): 
-        colors = cycle('br')        
-        plt.figure()
-        for k, col in zip(range(n_creditY), colors):
+def visualize(X, est, title, K):
+        colors = cycle('bgrcmykbgrcmykbgrcmykbgrcmyk')#br        
+        plt.figure(1)
+        for k, col in zip(range(K), colors):
             my_members = est.labels_ == k
             plt.plot(X[my_members, 0], X[my_members, 1], col + 'o',  markersize=2)
-                #cluster_center = est.cluster_centers_[k]            
-            #plt.plot(cluster_center[0], cluster_center[1], 'o', markerfacecolor=col,
-            #         markeredgecolor='k', markersize=14)
+            cluster_center = est.cluster_centers_[k]            
+            plt.scatter(cluster_center[0], cluster_center[1], 
+                        marker='^', s=169, linewidths=3,
+                        color='y', zorder=10)
         plt.title(title)
+        plt.xlabel("Component 1")
+        plt.ylabel("Component 2")
         plt.show()
         #plt.savefig("{0}_{1}_attr.jpeg".format(name, n_features))
 
-def find_ICA_comp():
+def visualize3D(X, est, title):
+    fignum = 1
+    #for name, est in estimators.items():
+    fig = plt.figure(fignum, figsize=(4, 3))
+    plt.clf()
+    ax = Axes3D(fig, rect=[0, 0, .95, 1])
+
+    plt.cla()
+    est.fit(X)
+    labels = est.labels_
+
+    ax.scatter(X[:, 3], X[:, 0], X[:, 2], c=labels.astype(np.float))
+
+    ax.w_xaxis.set_ticklabels([])
+    ax.w_yaxis.set_ticklabels([])
+    ax.w_zaxis.set_ticklabels([])
+    ax.set_xlabel('Axis 1')
+    ax.set_ylabel('Axis 2')
+    ax.set_zlabel('Axis 3')
+    plt.show()
+
+def find_ICA_comp(data_X, threshold):
+    #t_start = time()
     reduced_ICA = FastICA(random_state=42).fit_transform(data_X)
+    #time_red = time() - t_start
     
     #calc kurtosis for each feature
     kurtosis_list = []
     for i in range(0, len(reduced_ICA[0])):
         kurtosis = stats.kurtosis(reduced_ICA[:,i], axis=0, fisher=True, bias=True)
         kurtosis_list.append(kurtosis)
+    '''
+    print "\nKurtosis by a companent:\n{0}".format(kurtosis_list)    
     
-    print "\nKurtosis by a companent:\n{0}".format(kurtosis_list)
-    
-    # select components to remove where kurtosis < 100   
+    # plot distribution    
+    kurt_data = reduced_ICA[:,14]
+    plt.hist(kurt_data, 200)
+    plt.title("ICA. Feature #10 Distribution. Kurtosis = -")
+    plt.xlabel("Value")
+    plt.ylabel("Frequency")
+    plt.show()
+    '''
+    # select components to remove where kurtosis <= threshold   
     remove_components = []
     for i in range(0, len(kurtosis_list)):
-        if abs(kurtosis_list[i]) <= 100:
+        #if abs(kurtosis_list[i]) <= threshold or abs(kurtosis_list[i]) >= 400:
+        if kurtosis_list[i] > 0:
             #selected_ICA.append(reduced_ICA[:,0])
             remove_components.append(i)
-    
+            
+    print remove_components
     # remove components that didn't pass threshold
     reduced_ICA_new = np.delete(reduced_ICA, remove_components, 1)
-        
+    '''   
     kurtosis_list_new = []
     for i in range(0, len(reduced_ICA_new[0])):
         kurtosis = stats.kurtosis(reduced_ICA_new[:,i], axis=0, fisher=True, bias=True)
         kurtosis_list_new.append(kurtosis)
     
     print "\nKurtosis after removal:\n{0}".format(kurtosis_list_new) 
+    '''
+    
     return reduced_ICA_new
     
-def find_RP_comp():
-    pass
+    
+def find_RP_comp(data_X, data_Y, out_file):
+    for K in range(2, 22, 2):
+        for NUM_ATTR in attr_list_full:
+            kmeansRP = KMeans(init='k-means++', n_clusters=K, n_init=50)
+            
+            for i in range(0, 3):
+                # Generate projection
+                t_start = time()
+                reduced_RP = random_projection.GaussianRandomProjection(n_components=NUM_ATTR).fit_transform(data_X)
+                t_RP = time() - t_start
+                
+                estimators = {"RP":[kmeansRP, reduced_RP, t_RP]}
+                
+                print(100 * '_')
+                print('% 10s' % 'Features' '    Cluster #0, %     Cluster #1, %   '
+                    'Accuracy, %     Silhouette    AUC       Time      TimeRed')
+                
+                # Fit estimator, analize performance, and output data_X to *.csv
+                fit_estimators(estimators, data_Y, out_file, NUM_ATTR, K)
+                
 
-def find_PCA_comp():    
+def find_PCA_comp(data_X, filename):    
     pca = PCA()
     pca.fit(data_X)
     
+    eigenvals = pca.explained_variance_ratio_
     #Cumulative Variance explains
-    cum_varuiance = np.cumsum(np.round(pca.explained_variance_ratio_, decimals=4)*100)
+    cum_varuiance = np.cumsum(np.round(eigenvals, decimals=4)*100)
     print cum_varuiance
     
     plt.plot(cum_varuiance)
     plt.ylim(20, 105)
-    plt.xlim(0, 23)
+    #plt.xlim(0, 23)
     plt.ylabel("Variance Explained %")
     plt.xlabel("Principal Comonents Number")
     plt.grid(b=True, which='major', color="#a0a0a0", linestyle='-')
     #plt.grid(b=True, which='minor', color="#a0a0a0", linestyle='-')
     plt.title("Principal Components vs. Variance")
-    plt.minorticks_on()          
+    plt.minorticks_on()
+    
+    np.savetxt(filename, [eigenvals, cum_varuiance], delimiter=",", fmt="%s")
+    
+
+def test_estimator(name, estimator, reduced_data, data_Y, time_red, NUM_ATTR, K):
+    
+    estimators = {name:[estimator, reduced_data, time_red]}
+                
+    print(100 * '_')
+    print('% 10s' % 'Features' '    Cluster #0, %     Cluster #1, %'  
+        '  Accuracy, %     Silhouette    AUC       Time      TimeRed') 
+    out_file = output_file.format(name)
+    
+    # Fit estimator, analize performance, and output data_X to *.csv
+    fit_estimators(estimators, data_Y, out_file, NUM_ATTR, K)
+
+def test_PCA(data_X, data_Y):
+    for K in range(2, 20, 2):
+        #K = 2
+        for NUM_ATTR in [15]:
+            # Initialize k-means objects
+            kmeansPCA = KMeans(init='k-means++', n_clusters=K, n_init=50)
+            
+            # run Dimensionality Reduction Algorithms                        
+            t_start = time()
+            reduced_PCA = PCA(n_components=NUM_ATTR).fit_transform(data_X)
+            t_PCA = time() - t_start
+            
+            # test
+            test_estimator("PCA", kmeansPCA, reduced_PCA, data_Y, t_PCA, NUM_ATTR, K)
+            visualize(reduced_PCA, kmeansPCA, "K-means. PCA reduced", K)
+            
+            
+def test_ICA(data_X, data_Y):
+    for K in range(2, 10):
+        for threshold in [-100]:
+            # Initialize k-means objects
+            kmeans = KMeans(init='k-means++', n_clusters=K, n_init=50)
+    
+            # run Dimensionality Reduction Algorithms                        
+            reduced_data = find_ICA_comp(data_X, threshold)
+            time_red = 0.4
+                  
+            NUM_ATTR = len(reduced_data[0])
+            # test
+            test_estimator("ICA-", kmeans, reduced_data, data_Y, time_red, NUM_ATTR, K)
+            
+            #visualize(reduced_data, kmeans, "K-means. ICA reduced")
+            #voronoi_vis(reduced_data, kmeans, 0.02, "K-means. ICA reduced")
+            
+def test_plain(data_X, data_Y):
+    for K in range(2, 22):
+        kmeans = KMeans(init='k-means++', n_clusters=K, n_init=50)
+
+        NUM_ATTR = len(data_X[0])
+        # test
+        test_estimator("raw-wine", kmeans, data_X, data_Y, 0, NUM_ATTR, K)
 
 if __name__ == "__main__":
     np.random.seed(42)
-    NUM_ATTR = 2
+    #NUM_ATTR = 2
     silhouette_sample = 15000
     attr_list_full = [2, 5, 10, 15, 20]
-    #attr_list_reduced = [2, 6, 10]
-    #output_file = "credit_kmeans_23attr.csv"
+    output_file = "credit_kmeans_{0}.csv"
     
-    full_df = pd.read_csv(get_path("../../datasets/credit_full.csv"))
-    small_df = pd.read_csv(get_path("../../datasets/credit_test_num.csv"))
+    # Read Datasets
+    credit_df = pd.read_csv(get_path("../../datasets/credit_full.csv"))
+    wine_df = pd.read_csv(get_path("../../datasets/wine_full.csv"))
+    #small_df = pd.read_csv(get_path("../../datasets/credit_test_num.csv"))
     
-    # 30% of dataset
-    #data_X = np.array(small_df.drop(['LIMIT_BAL'], 1))
-    #data_Y = np.array(small_df['DEFAULT'])
-    
-    # convert the "quality" label column to numpy arrays
-    #data_X = np.array(full_df.drop(['LIMIT_BAL','DEFAULT', 'SEX','EDUCATION','MARRIAGE','AGE','PAY_0','PAY_2','PAY_3','PAY_4','PAY_5','PAY_6'], 1))
-    data_X_raw = np.array(full_df.drop(['DEFAULT'], 1))
-    data_Y = np.array(full_df['DEFAULT'])
+    # split data into labels and features. Convert to numpy arrays
+    credit_X_raw = np.array(credit_df.drop(['DEFAULT'], 1))
+    credit_Y = np.array(credit_df['DEFAULT'])
+    wine_X_raw = np.array(wine_df.drop(['quality'], 1))
+    wine_Y = np.array(wine_df['quality'])
+    credit_labels_num = len(np.unique(credit_Y))
+    wine_labels_num = len(np.unique(wine_Y))
     
     # Scaling
     #data_X_scaled = StandardScaler().fit_transform(data_X)   
-    data_X_scaled = scale(data_X_raw)
-    #data_X_scaled = data_X 
-    data_X = data_X_scaled
+    credit_X = scale(credit_X_raw)
+    wine_X = scale(wine_X_raw)
     
     #Data Statistics
-    n_samples, n_features = data_X_raw.shape
-    n_creditY = len(np.unique(data_Y))
-    #n_creditY =
-    cluster0_true = ((np.count_nonzero(data_Y == 0))/len(data_Y))*100 
-    cluster1_true = ((np.count_nonzero(data_Y == 1))/len(data_Y))*100 
-    print("cluster_true #0: {0:.2f}%\ncluster_true #1: {1:.2f}%\n".format(cluster0_true, cluster1_true))
-    print("n_creditY: %d, \t n_samples: %d, \t n_features: %d" % (n_creditY, n_samples, n_features))
+    print_statistics(credit_X, credit_Y, "Credit Dataset")
+    print_statistics(wine_X, wine_Y, "Wine Dataset")
     
+    #test_plain(wine_X, wine_Y)
+    #grid_traversal_k_attr(data_X)
     
-    #grid_traversal_k_attr()
+    find_PCA_comp(wine_X, "PCA-wine-var.csv")
+    #selected_ICA = find_ICA_comp(data_X, 100)
     
-    #find_PCA_comp()
-    selected_ICA = find_ICA_comp()
+    #find_RP_comp(data_X, "credit_kmeans_RP.csv")
     
+    #test_PCA(credit_X, credit_Y)
+    #test_ICA(data_X)
     
-
+    #subprocess.call(['rundll32', 'user.exe,ExitWindowsExec')
+    
     
     #######################################################################################################
     '''    
@@ -409,11 +528,11 @@ if __name__ == "__main__":
     
     '''
     # Confusion Matrix
-    print(pd.crosstab(kmeans.labels_, data_Y))
-    print_accuracy(kmeans, data_X, data_Y, name='kmeans')
-    print("data_Y = 0: " + str(np.count_nonzero(data_Y == 0)) )
+    print(pd.crosstab(kmeans.labels_, credit_Y))
+    print_accuracy(kmeans, data_X, credit_Y, name='kmeans')
+    print("credit_Y = 0: " + str(np.count_nonzero(credit_Y == 0)) )
     print("\n")
     
-    print(pd.crosstab(kmeansPCA.labels_, data_Y))   
-    print_accuracy(kmeansPCA, reduced_PCA_unscaled, data_Y, name='kmeansPCA')
+    print(pd.crosstab(kmeansPCA.labels_, credit_Y))   
+    print_accuracy(kmeansPCA, reduced_PCA_unscaled, credit_Y, name='kmeansPCA')
     '''

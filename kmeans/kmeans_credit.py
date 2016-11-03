@@ -9,6 +9,7 @@ print(__doc__)
 
 from time import time
 from scipy import stats
+from scipy.spatial.distance import cdist, pdist
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -18,6 +19,8 @@ import csv
 
 
 from sklearn import metrics
+from sklearn.metrics import accuracy_score
+from sklearn.metrics import confusion_matrix
 from sklearn.cluster import KMeans
 from sklearn.datasets import load_digits
 from sklearn.decomposition import PCA, FastICA, FactorAnalysis
@@ -28,6 +31,8 @@ from sklearn.manifold import TSNE
 from sklearn import random_projection
 from itertools import cycle
 from sklearn.metrics import roc_auc_score
+from sklearn import mixture
+from matplotlib.colors import LogNorm
 
 def get_path(rel_path):
     script_dir = os.path.dirname(__file__) #absolute dir the script is in
@@ -75,6 +80,16 @@ def plot_variance_retained(data_X):
     plt.title("Principal Components vs. Variance")
     plt.minorticks_on()
 
+def print_confusion_matrix(data_Y, est):
+    #print(confusion_matrix(digits.target, labels))
+    
+    plt.imshow(confusion_matrix(data_Y, est.labels_),
+               cmap='Blues', interpolation='nearest')
+    plt.colorbar()
+    plt.grid(False)
+    plt.ylabel('true')
+    plt.xlabel('predicted');
+
 def print_statistics(X, Y, name):
     samples_num, features_num = X.shape
     labels_num = len(np.unique(Y))
@@ -96,6 +111,44 @@ def plot_K_vs_Silhouette(data_X, k_list):
     plt.xlabel("Number of Clusters K")
     plt.title("Silhouette vs. K")
     plt.show()
+    
+def eblow(data_X, n):
+    # Determine your k range
+    k_range = range(1, n+1)
+    
+    # Fit the kmeans model for each n_clusters = k
+    k_means_var = [KMeans(n_clusters=k, n_init=20).fit(data_X) for k in k_range]
+    
+    # Pull out the cluster centers for each model
+    centroids = [X.cluster_centers_ for X in k_means_var]
+    
+    # Calculate the Euclidean distance from 
+    # each point to each cluster center
+    k_euclid = [cdist(data_X, cent, 'euclidean') for cent in centroids]
+    dist = [np.min(ke,axis=1) for ke in k_euclid]
+    
+    # Total within-cluster sum of squares
+    wcss = [sum(d**2) for d in dist]
+    
+    # The total sum of squares
+    tss = sum(pdist(data_X)**2)/data_X.shape[0]
+    
+    # The between-cluster sum of squares
+    bss = tss - wcss
+    
+    print ("wcss:\n{0}".format(wcss))
+    print ("tss:\n{0}".format(tss))
+    print ("bss-tss:\n{0}".format((bss/tss)*100))    
+    
+    # elbow curve
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    ax.plot(k_range, bss/tss*100, 'b*-')
+    ax.set_ylim((0,100))
+    plt.grid(True)
+    plt.xlabel('NUmber of clusters K')
+    plt.ylabel('BSS/TSS, %')
+    plt.title('Variance Explained vs. K')
 
 def bench_k_means(estimator, name, data_X, labels):
     t_start = time()
@@ -162,50 +215,66 @@ def grid_traversal_k_attr(data_X, data_Y, attributes):
                 for name, est_list in estimators.items():
                     est, X, time = est_list
                     visualize(X, est, "K-means. Credit. {0}-reduced".format(name))
-                                      
+            
+                                    
 def fit_estimators(estimators, labels, filename, NUM_ATTR, K):
     datarows = []
     for name, est_list in estimators.items():
-        estimator, data_used, time_reduction = est_list
+        estimator, data_X, time_reduction = est_list
         
         # fit the data
         t_start = time()
-        estimator.fit(data_used)
+        estimator.fit(data_X)
         t_fit = time() - t_start
         
-        # get clusters' sizes
-        cluster0 = ((np.count_nonzero(estimator.labels_ == 0))/len(data_used))*100  
-        cluster1 = ((np.count_nonzero(estimator.labels_ == 1))/len(data_used))*100
-        cluster_num0 = max(cluster0, cluster1)
-        cluster_num1 = min(cluster0, cluster1)
+        silhouette = 0
+        # if ground-truth labels are available
+        if (((K == credit_labels_num and len(labels) == len(credit_Y)) or 
+            (K == wine_labels_num and len(labels) == len(credit_Y))) and
+            type(estimator) != mixture.GaussianMixture):
+            #accuracy = get_accuracy(estimator, data_X, labels, name)
+            accuracy = accuracy_score(data_X, estimator.labels_)
+            auc = 0 #get_auc_score(estimator, data_X, labels)
+            homogeneity = metrics.homogeneity_score(labels, estimator.labels_)
+            completeness = metrics.completeness_score(labels, estimator.labels_)
+            v_measure = metrics.v_measure_score(labels, estimator.labels_)
+            ari = metrics.adjusted_rand_score(labels, estimator.labels_)
+            ami = metrics.adjusted_mutual_info_score(labels,  estimator.labels_)
+            # get clusters' sizes
+            cluster0 = ((np.count_nonzero(estimator.labels_ == 0))/len(data_X))*100  
+            cluster1 = ((np.count_nonzero(estimator.labels_ == 1))/len(data_X))*100
+            cluster_num0 = max(cluster0, cluster1)
+            cluster_num1 = min(cluster0, cluster1)
+            inertia = estimator.inertia_
+        else:
+            accuracy, auc, homogeneity, completeness,v_measure, ari, ami = [0] *7
+            cluster_num0,cluster_num1,inertia = [0] * 3
         
-        accuracy = get_accuracy(estimator, data_used, labels, name)
-        #auc = get_auc_score(estimator, data_used, labels)
-        auc = 0
+        bic = 0
+        if type(estimator) == mixture.GaussianMixture:
+            bic = estimator.bic(data_X)
         
-        homogeneity = metrics.homogeneity_score(labels, estimator.labels_)
-        completeness = metrics.completeness_score(labels, estimator.labels_)
-        v_measure = metrics.v_measure_score(labels, estimator.labels_)
-        ari = metrics.adjusted_rand_score(labels, estimator.labels_)
-        ami = metrics.adjusted_mutual_info_score(labels,  estimator.labels_)  
-        silhouette = metrics.silhouette_score(data_used, estimator.labels_,
-                                      metric='euclidean',
-                                      sample_size=silhouette_sample)        
+        else:
+            # silhouette is internal metrics independent of ground-truth
+            silhouette = metrics.silhouette_score(data_X, estimator.labels_,
+                                          metric='euclidean',
+                                          sample_size=silhouette_sample)        
         
-        print('%11s      %.2f           %.2f         %.2f          %.3f        %.2f       %.2fs        %.2fs'
-          % (name, cluster_num0, cluster_num1, accuracy, silhouette, auc, t_fit, time_reduction))
+        print('%11s      %.2f           %.2f         %.2f          %.3f     %.2f      %.2f       %.2fs        %.2fs'
+          % (name, cluster_num0, cluster_num1, accuracy, silhouette, bic, auc, t_fit, time_reduction))
     
         datarows.append([name, NUM_ATTR, K, "{:.2f}".format(cluster_num0), "{:.2f}".format(cluster_num1), 
-                         "{:.2f}".format(accuracy), "{:.3f}".format(silhouette), "{:.2f}".format(t_fit), 
-                         "{:.2f}".format(time_reduction),"{:.2E}".format(estimator.inertia_), homogeneity, 
+                         "{:.2f}".format(accuracy), "{:.3f}".format(silhouette), "{:.2f}".format(bic),
+                         "{:.2f}".format(t_fit), "{:.2f}".format(time_reduction),
+                         "{:.2E}".format(inertia), homogeneity, 
                          completeness, v_measure, ari, ami, "{:.2f}".format(auc)])
                          
     is_file = os.path.exists(filename)
     with open(filename, 'ab') as csvfile:
         writer = csv.writer(csvfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
         if not is_file:        
-            header = "Name,#Features,Clusters#,Cluster#0,Cluster#1,Accuracy,Silhouette,\
-            TimeKmeans,TimeRed,inertia,homo,compl,v-meas,ARI,AMI,AUC".split(",")
+            header = "Name,#Features,Clusters#,Cluster#0,Cluster#1,Accuracy,Silhouette,BIC,\
+            TimeKmeans,TimeRed,inertia,homo,compl,v-means,ARI,AMI,AUC".split(",")
             writer.writerow(header)    
         writer.writerows(datarows)
                                       
@@ -243,6 +312,39 @@ def voronoi_vis(X, est, h, title):
     plt.xticks(())
     plt.yticks(())
     plt.show()
+
+def plotGMM(est, data_X):
+    # display predicted scores by the model as a contour plot
+     
+    x = np.linspace(-20., 30.)
+    y = np.linspace(-20., 40.)
+    z = np.linspace(-20., 40.)
+    X, Y = np.meshgrid(x, y)
+    #XX = np.array([X.ravel(), Y.ravel(), z.ravel()]).T
+    XX = np.linspace(np.min(data_X), np.max(data_X), 11)
+    Z = -est.score_samples(XX)
+    #Z = Z.reshape(X.shape)
+    
+    CS = plt.contour(X, Y, Z, norm=LogNorm(vmin=1.0, vmax=1000.0),
+                     levels=np.logspace(0, 3, 10))
+    CB = plt.colorbar(CS, shrink=0.8, extend='both')
+    plt.scatter(data_X[:, 0], data_X[:, 1], .8)
+    
+    plt.title('Negative log-likelihood predicted by a GMM')
+    plt.axis('tight')
+    plt.show()
+        
+    '''    
+    delta = 0.025
+    x = np.arange(-10, 10, delta)
+    y = np.arange(-6, 12, delta)
+    X, Y = np.meshgrid(x, y)
+    #print g.means_
+    plt.plot(g.means_[0][0],g.means_[0][1], '+', markersize=13, mew=3)
+    plt.plot(g.means_[1][0],g.means_[1][1], '+', markersize=13, mew=3)
+    plt.plot(g.means_[2][0],g.means_[2][1], '+', markersize=13, mew=3)
+    plt.plot(g.means_[3][0],g.means_[3][1], '+', markersize=13, mew=3)
+    '''
     
 def visualize(X, est, title, K):
         colors = cycle('bgrcmykbgrcmykbgrcmykbgrcmyk')#br        
@@ -271,7 +373,7 @@ def visualize3D(X, est, title):
     est.fit(X)
     labels = est.labels_
 
-    ax.scatter(X[:, 3], X[:, 0], X[:, 2], c=labels.astype(np.float))
+    ax.scatter(X[:, 0], X[:, 1], X[:, 2], c=labels.astype(np.float))
 
     ax.w_xaxis.set_ticklabels([])
     ax.w_yaxis.set_ticklabels([])
@@ -285,35 +387,59 @@ def find_ICA_comp(data_X, threshold):
     #t_start = time()
     reduced_ICA = FastICA(random_state=42).fit_transform(data_X)
     #time_red = time() - t_start
-    
+    '''
     #calc kurtosis for each feature
+    plot_num = 1
+    plt.figure(figsize=(16, 12))
+    plt.xticks(fontsize = 10)
+    plt.yticks(fontsize = 10)
+    plt.tight_layout()
+    '''
     kurtosis_list = []
+    skew_list = []
     for i in range(0, len(reduced_ICA[0])):
         kurtosis = stats.kurtosis(reduced_ICA[:,i], axis=0, fisher=True, bias=True)
+        skew = stats.skew(reduced_ICA[:,i], axis=0, bias=True, )
         kurtosis_list.append(kurtosis)
-    '''
-    print "\nKurtosis by a companent:\n{0}".format(kurtosis_list)    
+        skew_list.append(skew)
+        
+        '''
+        # plot distribution
+        plt.subplot(6, 4, plot_num)
+        kurt_data = reduced_ICA[:,i]
+        plt.hist(kurt_data, 500)
+        plt.title("Feature #{0}, kurtosis={1:.2f}, skew={2:.2f}".format(i+1, kurtosis, skew), fontsize=10)
+        #plt.xlabel("Value")
+        #plt.ylabel("Frequency")
+        plt.xticks(fontsize = 10)
+        plt.yticks(fontsize = 10)
+        plt.tight_layout()
+        plt.show()
+        plot_num += 1
+        '''
+    #print "\nKurtosis by a companent:\n{0}".format(kurtosis_list)
+    #print "\nSkews by a companent:\n{0}".format(skew_list)    
     
-    # plot distribution    
-    kurt_data = reduced_ICA[:,14]
-    plt.hist(kurt_data, 200)
-    plt.title("ICA. Feature #10 Distribution. Kurtosis = -")
-    plt.xlabel("Value")
-    plt.ylabel("Frequency")
-    plt.show()
-    '''
-    # select components to remove where kurtosis <= threshold   
+    # select components to remove where kurtosis <= threshold
+    
     remove_components = []
+    
     for i in range(0, len(kurtosis_list)):
-        #if abs(kurtosis_list[i]) <= threshold or abs(kurtosis_list[i]) >= 400:
-        if kurtosis_list[i] > 0:
-            #selected_ICA.append(reduced_ICA[:,0])
+        if abs(kurtosis_list[i]) >= threshold: # or abs(kurtosis_list[i]) >= 400:
             remove_components.append(i)
-            
-    print remove_components
+ 
+    '''
+    remove_components = []
+        
+    leave = [1, 11]
+    for x in range(len(reduced_ICA[0])):
+        if x not in leave:
+            remove_components.append(x)
+    '''  
+    #print remove_components
     # remove components that didn't pass threshold
     reduced_ICA_new = np.delete(reduced_ICA, remove_components, 1)
-    '''   
+    '''  
     kurtosis_list_new = []
     for i in range(0, len(reduced_ICA_new[0])):
         kurtosis = stats.kurtosis(reduced_ICA_new[:,i], axis=0, fisher=True, bias=True)
@@ -340,7 +466,7 @@ def find_RP_comp(data_X, data_Y, out_file):
                 
                 print(100 * '_')
                 print('% 10s' % 'Features' '    Cluster #0, %     Cluster #1, %   '
-                    'Accuracy, %     Silhouette    AUC       Time      TimeRed')
+                    'Accuracy, %     Silhouette     BIC     AUC      Time      TimeRed')
                 
                 # Fit estimator, analize performance, and output data_X to *.csv
                 fit_estimators(estimators, data_Y, out_file, NUM_ATTR, K)
@@ -365,7 +491,7 @@ def find_PCA_comp(data_X, filename):
     plt.title("Principal Components vs. Variance")
     plt.minorticks_on()
     
-    np.savetxt(filename, [eigenvals, cum_varuiance], delimiter=",", fmt="%s")
+    #np.savetxt(filename, [eigenvals, cum_varuiance], delimiter=",", fmt="%s")
     
 
 def test_estimator(name, estimator, reduced_data, data_Y, time_red, NUM_ATTR, K):
@@ -374,7 +500,7 @@ def test_estimator(name, estimator, reduced_data, data_Y, time_red, NUM_ATTR, K)
                 
     print(100 * '_')
     print('% 10s' % 'Features' '    Cluster #0, %     Cluster #1, %'  
-        '  Accuracy, %     Silhouette    AUC       Time      TimeRed') 
+        '  Accuracy, %     Silhouette      BIC      AUC       Time      TimeRed') 
     out_file = output_file.format(name)
     
     # Fit estimator, analize performance, and output data_X to *.csv
@@ -398,8 +524,9 @@ def test_PCA(data_X, data_Y):
             
             
 def test_ICA(data_X, data_Y):
-    for K in range(2, 10):
-        for threshold in [-100]:
+    for K in range(2, 16):
+        #K=2
+        for threshold in [100]:
             # Initialize k-means objects
             kmeans = KMeans(init='k-means++', n_clusters=K, n_init=50)
     
@@ -412,22 +539,27 @@ def test_ICA(data_X, data_Y):
             test_estimator("ICA-", kmeans, reduced_data, data_Y, time_red, NUM_ATTR, K)
             
             #visualize(reduced_data, kmeans, "K-means. ICA reduced")
+            #visualize3D(reduced_data, kmeans, "K-means. ICA reduced")
             #voronoi_vis(reduced_data, kmeans, 0.02, "K-means. ICA reduced")
             
-def test_plain(data_X, data_Y):
-    for K in range(2, 22):
-        kmeans = KMeans(init='k-means++', n_clusters=K, n_init=50)
-
-        NUM_ATTR = len(data_X[0])
-        # test
-        test_estimator("raw-wine", kmeans, data_X, data_Y, 0, NUM_ATTR, K)
+def test_plain(data_X, data_Y, filename, est_name):
+    NUM_ATTR = data_X.shape[0]
+        
+    for K in range(2, 3):
+        if est_name == "gmm":
+            kmeans = KMeans(init='k-means++', n_clusters=K, n_init=50)
+            test_estimator(filename, kmeans, data_X, data_Y, 0, NUM_ATTR, K)
+        else:
+            gmm = mixture.GaussianMixture(n_components=K, covariance_type='full', max_iter=200, random_state=42)
+            test_estimator(filename, gmm, data_X, data_Y, 0, NUM_ATTR, K)
+                
 
 if __name__ == "__main__":
     np.random.seed(42)
     #NUM_ATTR = 2
     silhouette_sample = 15000
     attr_list_full = [2, 5, 10, 15, 20]
-    output_file = "credit_kmeans_{0}.csv"
+    output_file = "{0}.csv"
     
     # Read Datasets
     credit_df = pd.read_csv(get_path("../../datasets/credit_full.csv"))
@@ -451,16 +583,18 @@ if __name__ == "__main__":
     print_statistics(credit_X, credit_Y, "Credit Dataset")
     print_statistics(wine_X, wine_Y, "Wine Dataset")
     
-    #test_plain(wine_X, wine_Y)
+    test_plain(wine_X, wine_Y, get_path("../analysis_EM/wine-gmm-raw"))
     #grid_traversal_k_attr(data_X)
     
-    find_PCA_comp(wine_X, "PCA-wine-var.csv")
-    #selected_ICA = find_ICA_comp(data_X, 100)
+    #find_PCA_comp(wine_X, "PCA-wine-var.csv")
+    #selected_ICA = find_ICA_comp(credit_X, 100)
+    #eblow(credit_X, 10)
+    #eblow(wine_X, 10)
     
     #find_RP_comp(data_X, "credit_kmeans_RP.csv")
     
     #test_PCA(credit_X, credit_Y)
-    #test_ICA(data_X)
+    #test_ICA(credit_X, credit_Y)
     
     #subprocess.call(['rundll32', 'user.exe,ExitWindowsExec')
     

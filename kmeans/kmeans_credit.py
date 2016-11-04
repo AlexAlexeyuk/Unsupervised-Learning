@@ -16,6 +16,7 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import os
 import csv
+import operator
 
 
 from sklearn import metrics
@@ -34,14 +35,6 @@ from sklearn.metrics import roc_auc_score
 from sklearn import mixture
 from matplotlib.colors import LogNorm
 
-#links
-'''
-http://blog.haunschmid.name/dimensionality-reduction-1-understanding-pca-and-ica-using-r/
-#Independent_Component_Analysis_ICA
-http://www.statmethods.net/advstats/cluster.html
-http://www.everydayanalytics.ca/2014/06/pca-and-k-means-clustering-of-delta-aircraft.html
-https://plot.ly/ipython-notebooks/principal-component-analysis/
-'''
 def get_path(rel_path):
     script_dir = os.path.dirname(__file__) #absolute dir the script is in
     abs_file_path = os.path.join(script_dir, rel_path)
@@ -225,7 +218,7 @@ def grid_traversal_k_attr(data_X, data_Y, attributes):
                     visualize(X, est, "K-means. Credit. {0}-reduced".format(name))
             
                                     
-def fit_estimators(estimators, labels, NUM_ATTR, K):
+def fit_estimators(estimators, labels, filename, NUM_ATTR, K):
     datarows = []
     for name, est_list in estimators.items():
         estimator, data_X, time_reduction = est_list
@@ -234,17 +227,14 @@ def fit_estimators(estimators, labels, NUM_ATTR, K):
         t_start = time()
         estimator.fit(data_X)
         t_fit = time() - t_start
-
-        silhouette, bic = 0, 0
-        header = "Name,#Features,Clusters#,Cluster#0,Cluster#1,Accuracy,Silhouette,BIC,\
-        TimeKmeans,TimeRed,inertia,homo,compl,v-means,ARI,AMI,AUC".split(",")
-
+        
+        silhouette = 0
         # if ground-truth labels are available
         if (((K == credit_labels_num and len(labels) == len(credit_Y)) or 
             (K == wine_labels_num and len(labels) == len(credit_Y))) and
             type(estimator) != mixture.GaussianMixture):
             #accuracy = get_accuracy(estimator, data_X, labels, name)
-            accuracy = accuracy_score(data_X, estimator.labels_)
+            accuracy = accuracy_score(credit_Y, estimator.labels_)
             auc = 0 #get_auc_score(estimator, data_X, labels)
             homogeneity = metrics.homogeneity_score(labels, estimator.labels_)
             completeness = metrics.completeness_score(labels, estimator.labels_)
@@ -261,37 +251,31 @@ def fit_estimators(estimators, labels, NUM_ATTR, K):
             accuracy, auc, homogeneity, completeness,v_measure, ari, ami = [0] *7
             cluster_num0,cluster_num1,inertia = [0] * 3
         
-        filename = ""
+        bic = 0
         if type(estimator) == mixture.GaussianMixture:
-            filename = "{0}.csv".format(gmm_foler + name)            
             bic = estimator.bic(data_X)
-            datarows.append([name, NUM_ATTR, K, "{:.2f}".format(bic),
-                             "{:.2f}".format(t_fit), 
-                             "{:.2f}".format(time_reduction)])
-            header = "Name,#Features,Clusters#,BIC,TimeKmeans,TimeRed".split(",")
         
         else:
             # silhouette is internal metrics independent of ground-truth
-            filename = "{0}.csv".format(km_foler + name)
             silhouette = metrics.silhouette_score(data_X, estimator.labels_,
                                           metric='euclidean',
-                                          sample_size=silhouette_sample)
-                                          
-            datarows.append([name, NUM_ATTR, K, "{:.2f}".format(cluster_num0), "{:.2f}".format(cluster_num1), 
+                                          sample_size=silhouette_sample)        
+        
+        print('%11s      %.2f           %.2f         %.2f          %.3f     %.2f      %.2f       %.2fs        %.2fs'
+          % (name, cluster_num0, cluster_num1, accuracy, silhouette, bic, auc, t_fit, time_reduction))
+    
+        datarows.append([name, NUM_ATTR, K, "{:.2f}".format(cluster_num0), "{:.2f}".format(cluster_num1), 
                          "{:.2f}".format(accuracy), "{:.3f}".format(silhouette), "{:.2f}".format(bic),
                          "{:.2f}".format(t_fit), "{:.2f}".format(time_reduction),
                          "{:.2E}".format(inertia), homogeneity, 
                          completeness, v_measure, ari, ami, "{:.2f}".format(auc)])
-                
-        print('%11s      %.2f           %.2f         %.2f          %.3f     %.2f      %.2f       %.2fs        %.2fs'
-          % (name, cluster_num0, cluster_num1, accuracy, silhouette, bic, auc, t_fit, time_reduction))
-    
-    
-    # save in a file the result                     
+                         
     is_file = os.path.exists(filename)
     with open(filename, 'ab') as csvfile:
         writer = csv.writer(csvfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-        if not is_file:      
+        if not is_file:        
+            header = "Name,#Features,Clusters#,Cluster#0,Cluster#1,Accuracy,Silhouette,BIC,\
+            TimeKmeans,TimeRed,inertia,homo,compl,v-means,ARI,AMI,AUC".split(",")
             writer.writerow(header)    
         writer.writerows(datarows)
                                       
@@ -331,9 +315,11 @@ def voronoi_vis(X, est, h, title):
     plt.show()
 
 def plotGMM(est, data_X):
-    # display predicted scores by the model as a contour plot  
+    # display predicted scores by the model as a contour plot
+     
     x = np.linspace(-20., 30.)
     y = np.linspace(-20., 40.)
+    z = np.linspace(-20., 40.)
     X, Y = np.meshgrid(x, y)
     #XX = np.array([X.ravel(), Y.ravel(), z.ravel()]).T
     XX = np.linspace(np.min(data_X), np.max(data_X), 11)
@@ -397,64 +383,117 @@ def visualize3D(X, est, title):
     ax.set_ylabel('Axis 2')
     ax.set_zlabel('Axis 3')
     plt.show()
-
-def find_ICA_comp(data_X, threshold):
-    #t_start = time()
-    reduced_ICA = FastICA(random_state=42).fit_transform(data_X)
-    #time_red = time() - t_start
-    '''
-    #calc kurtosis for each feature
+    
+def plot2D_mixture(data_X, shape, is_ax_label=False):
+    
+    # create fig
     plot_num = 1
     plt.figure(figsize=(16, 12))
-    plt.xticks(fontsize = 10)
-    plt.yticks(fontsize = 10)
-    plt.tight_layout()
-    '''
-    kurtosis_list = []
-    skew_list = []
-    for i in range(0, len(reduced_ICA[0])):
-        kurtosis = stats.kurtosis(reduced_ICA[:,i], axis=0, fisher=True, bias=True)
-        skew = stats.skew(reduced_ICA[:,i], axis=0, bias=True, )
-        kurtosis_list.append(kurtosis)
-        skew_list.append(skew)
+    
+    for i in range(0, shape):
+        for j in range(0, shape):
+            if i == j:
+                ax = plt.subplot(shape, shape, plot_num)
+                ax.text(0.5, 0.5,"Component " + str(i+1), 
+                        {'ha': 'center', 'va': 'center'}, 
+                        transform=ax.transAxes,rotation=-45)
+            else:
+                ax = plt.subplot(shape, shape, plot_num)
+                plt.plot(data_X[:, i], data_X[:, j], 'o',  markersize=2)
+                #plt.title(title)
+                #plt.xlabel("Component 1")
+                #plt.ylabel("Component 2")
+                #plt.xticks(fontsize = 10)
+                #plt.yticks(fontsize = 10)
+            if not is_ax_label:
+                ax.get_xaxis().set_visible(False)
+                ax.get_yaxis().set_visible(False)
+            plt.tight_layout()
+            plt.show()
+            plot_num += 1
         
-        '''
+
+def get_kurtosis_skew(data_X):
+    kurtosis_dict = {}
+    skew_dict = {}
+    for i in range(0, data_X.shape[1]):
+        kurtosis = stats.kurtosis(data_X[:,i], axis=0, fisher=True, bias=True)
+        skew = stats.skew(data_X[:,i], axis=0, bias=True, )
+        kurtosis_dict[i] = kurtosis
+        skew_dict[i] = skew
+    
+    return kurtosis_dict, skew_dict
+
+def plot_distr_hist(data_X, kurtosis_list=None):
+    #calc kurtosis for each feature
+    if kurtosis_list is not None and len(kurtosis_list) != data_X.shape[1]:
+        raise AssertionError("kurtosis_list must be equal size" )
+    
+    plot_num = 1
+    plt.figure(figsize=(16, 12))
+    
+    for i in range(0, data_X.shape[1]):
         # plot distribution
         plt.subplot(6, 4, plot_num)
-        kurt_data = reduced_ICA[:,i]
+        kurt_data = data_X[:,i]
         plt.hist(kurt_data, 500)
-        plt.title("Feature #{0}, kurtosis={1:.2f}, skew={2:.2f}".format(i+1, kurtosis, skew), fontsize=10)
+        if kurtosis_list is not None:
+            plt.title("Component #{0}, kurtosis={1:.2f}".format(i+1, kurtosis_list[i]), fontsize=14)
         #plt.xlabel("Value")
         #plt.ylabel("Frequency")
         plt.xticks(fontsize = 10)
         plt.yticks(fontsize = 10)
         plt.tight_layout()
         plt.show()
-        plot_num += 1
-        '''
+        plot_num += 1  
+
+def find_ICA_comp(data_X, threshold):
+    #t_start = time()
+    reduced_ICA = FastICA(random_state=42).fit_transform(data_X)
+    #time_red = time() - t_start
+    
+    # calculcate kurtosis and skew
+    kurtosis_dict, skew_dict = get_kurtosis_skew(reduced_ICA)
+   
+    # sort by kurtosis in ascending order
+    sorted_kurtosis = sorted(kurtosis_dict.items(), key=operator.itemgetter(1))    
+    
+    # create new sorted by kurtosis numpy array
+    kurtosis_list = []
+    reduced_ICA_sorted = np.empty(reduced_ICA.shape)
+    for kurt_tuple, i in zip(sorted_kurtosis, range(reduced_ICA_sorted.shape[1])):
+        j, kurtosis = kurt_tuple      
+        reduced_ICA_sorted[:,i] = reduced_ICA[:,j]
+        kurtosis_list.append(kurtosis)
+
     #print "\nKurtosis by a companent:\n{0}".format(kurtosis_list)
     #print "\nSkews by a companent:\n{0}".format(skew_list)    
     
-    # select components to remove where kurtosis <= threshold
-    
-    remove_components = []
-    
-    for i in range(0, len(kurtosis_list)):
-        if abs(kurtosis_list[i]) >= threshold: # or abs(kurtosis_list[i]) >= 400:
-            remove_components.append(i)
- 
     '''
+    # select components to remove where kurtosis <= threshold
     remove_components = []
-        
+    for i in range(0, len(kurtosis_list)):
+        if kurtosis_list[i] >= threshold:
+            remove_components.append(i)
+            
+    #print remove_components
+    #remove components that didn't pass threshold
+    reduced_ICA_sorted = np.delete(reduced_ICA_sorted, remove_components, 1)
+    '''
+    
+    kurtosis_list_leave = kurtosis_list[:threshold]
+    reduced_ICA_leave = np.empty([reduced_ICA.shape[0], threshold])
+    for i in range(threshold):
+        reduced_ICA_leave[:,i] = reduced_ICA_sorted[:,i]
+    
+    '''
     leave = [1, 11]
     for x in range(len(reduced_ICA[0])):
         if x not in leave:
             remove_components.append(x)
-    '''  
-    #print remove_components
-    # remove components that didn't pass threshold
-    reduced_ICA_new = np.delete(reduced_ICA, remove_components, 1)
-    '''  
+    '''
+    '''
+    reduced_ICA_new = reduced_ICA_sorted
     kurtosis_list_new = []
     for i in range(0, len(reduced_ICA_new[0])):
         kurtosis = stats.kurtosis(reduced_ICA_new[:,i], axis=0, fisher=True, bias=True)
@@ -462,8 +501,7 @@ def find_ICA_comp(data_X, threshold):
     
     print "\nKurtosis after removal:\n{0}".format(kurtosis_list_new) 
     '''
-    
-    return reduced_ICA_new
+    return reduced_ICA_leave, kurtosis_list_leave
     
     
 def find_RP_comp(data_X, data_Y, out_file):
@@ -516,13 +554,14 @@ def test_estimator(name, estimator, reduced_data, data_Y, time_red, NUM_ATTR, K)
     print(100 * '_')
     print('% 10s' % 'Features' '    Cluster #0, %     Cluster #1, %'  
         '  Accuracy, %     Silhouette      BIC      AUC       Time      TimeRed') 
+    out_file = output_file.format(name)
     
     # Fit estimator, analize performance, and output data_X to *.csv
-    fit_estimators(estimators, data_Y, NUM_ATTR, K)
+    fit_estimators(estimators, data_Y, out_file, NUM_ATTR, K)
 
 def test_PCA(data_X, data_Y):
-    for K in range(2, 20, 2):
-        #K = 2
+    #for K in range(2, 20, 2):
+        K = 2
         for NUM_ATTR in [15]:
             # Initialize k-means objects
             kmeansPCA = KMeans(init='k-means++', n_clusters=K, n_init=50)
@@ -532,9 +571,11 @@ def test_PCA(data_X, data_Y):
             reduced_PCA = PCA(n_components=NUM_ATTR).fit_transform(data_X)
             t_PCA = time() - t_start
             
+            #reduced_ICA = find_ICA_comp(reduced_PCA, 5)
+            #plot2D_mixture(reduced_ICA, 10, False)
             # test
             test_estimator("PCA", kmeansPCA, reduced_PCA, data_Y, t_PCA, NUM_ATTR, K)
-            visualize(reduced_PCA, kmeansPCA, "K-means. PCA reduced", K)
+            #visualize(reduced_PCA, kmeansPCA, "K-means. PCA reduced", K)
             
             
 def test_ICA(data_X, data_Y):
@@ -556,53 +597,70 @@ def test_ICA(data_X, data_Y):
             #visualize3D(reduced_data, kmeans, "K-means. ICA reduced")
             #voronoi_vis(reduced_data, kmeans, 0.02, "K-means. ICA reduced")
             
-
-def test_plain(data_X, data_Y, name, est_name):
-    NUM_ATTR = data_X.shape[1]  
-    for K in range(2, 10):
-        if est_name != "gmm":
+def test_plain(data_X, data_Y, filename, est_name):
+    NUM_ATTR = data_X.shape[0]
+        
+    for K in range(2, 3):
+        if est_name == "gmm":
             kmeans = KMeans(init='k-means++', n_clusters=K, n_init=50)
-            test_estimator(name, kmeans, data_X, data_Y, 0, NUM_ATTR, K)
+            test_estimator(filename, kmeans, data_X, data_Y, 0, NUM_ATTR, K)
         else:
             gmm = mixture.GaussianMixture(n_components=K, covariance_type='full', max_iter=200, random_state=42)
-            test_estimator(name, gmm, data_X, data_Y, 0, NUM_ATTR, K)
-                
+            test_estimator(filename, gmm, data_X, data_Y, 0, NUM_ATTR, K)
 
+def get_xy(df):
+    X_raw = np.array(df.drop(df.columns[-1], 1))
+    Y = np.array(df[df.columns[-1]])
+    X = scale(X_raw)
+    return X, Y
+
+def combine_reduced_initial(data_list):
+    # concatenate    
+    full = np.c_[data_list]
+    #fdsfds = [x for x in data_list]
+    
+    # create Dataframe
+    col_names = ["col" + str(x) for x in range(1, full.shape[1]+1)]
+    full_df = pd.DataFrame(full, columns=col_names)                    
+    return full_df
+    
 if __name__ == "__main__":
     np.random.seed(42)
     #NUM_ATTR = 2
     silhouette_sample = 15000
     attr_list_full = [2, 5, 10, 15, 20]
-    km_foler = get_path("../analysis_KM/")
-    gmm_foler = get_path("../analysis_EM/")
+    output_file = "{0}.csv"
+    data_folder = get_path("../../datasets/weka/")
     
-    # Read Datasets
+    # Read in Data Sets
     credit_df = pd.read_csv(get_path("../../datasets/credit_full.csv"))
+    credit_df_train = pd.read_csv(get_path("../../datasets/credit_train.csv"))
     wine_df = pd.read_csv(get_path("../../datasets/wine_full.csv"))
-    #small_df = pd.read_csv(get_path("../../datasets/credit_test_num.csv"))
+    wine_df_train = pd.read_csv(get_path("../../datasets/wine_train.csv"))
     
-    # split data into labels and features. Convert to numpy arrays
-    credit_X_raw = np.array(credit_df.drop(['DEFAULT'], 1))
-    credit_Y = np.array(credit_df['DEFAULT'])
-    wine_X_raw = np.array(wine_df.drop(['quality'], 1))
-    wine_Y = np.array(wine_df['quality'])
-    credit_labels_num = len(np.unique(credit_Y))
-    wine_labels_num = len(np.unique(wine_Y))
-    
-    # Scaling
-    #data_X_scaled = StandardScaler().fit_transform(data_X)   
-    credit_X = scale(credit_X_raw)
-    wine_X = scale(wine_X_raw)
+    credit_X, credit_Y = get_xy(credit_df)
+    credit_X_train, credit_Y_train = get_xy(credit_df_train)
+    wine_X, wine_Y = get_xy(wine_df)
+    wine_X_train, wine_Y_train = get_xy(wine_df_train)
     
     #Data Statistics
     print_statistics(credit_X, credit_Y, "Credit Dataset")
     print_statistics(wine_X, wine_Y, "Wine Dataset")
-
-    test_plain(wine_X, wine_Y, "wine-credit-raw", "kmeans")
+    
+    #test_plain(wine_X, wine_Y, "wine-gmm-raw", "gmm")
     #grid_traversal_k_attr(data_X)
     
     #find_PCA_comp(wine_X, "PCA-wine-var.csv")
-    #selected_ICA = find_ICA_comp(credit_X, 100)
+    
+    #selected_ICA, kurtosis_list = find_ICA_comp(wine_X, 11)
+    #plot2D_mixture(selected_ICA, 11)
+    #plot_distr_hist(selected_ICA, kurtosis_list)
+    
+    #reduced_RP = random_projection.GaussianRandomProjection(n_components=23).fit_transform(credit_X)
+    #plot2D_mixture(reduced_RP, 10, False)
+    
+    #plot_distr_hist(selected_ICA)
+    #plot2D_mixture(selected_ICA, 10, False)
     #eblow(credit_X, 10)
     #eblow(wine_X, 10)
     
@@ -612,9 +670,35 @@ if __name__ == "__main__":
     #test_ICA(credit_X, credit_Y)
     
     #subprocess.call(['rundll32', 'user.exe,ExitWindowsExec')
+    #reduced_full_ICA = np.c_[selected_ICA, credit_Y_train]
     
     
+    #---------------------------------------Test Reduced Data ----------------------------#    
     
+    # Conbine Reduced Data and Initial
+    '''
+    # ICA
+    selected_ICA = find_ICA_comp(credit_X_train, 2)
+    ICA_df = combine_reduced_initial(credit_X_train, selected_ICA, credit_Y_train)
+    ICA_df.to_csv(data_folder+'credit_train_ICA.csv', encoding='utf-8', index=False)
+    
+    # PCA
+    reduced_PCA = PCA(n_components=13).fit_transform(credit_X_train)
+    PCA_df = combine_reduced_initial(credit_X_train, reduced_PCA, credit_Y_train)
+    PCA_df.to_csv(data_folder+'credit_train_PCA.csv', encoding='utf-8', index=False)
+    '''
+    
+    # ICA
+    selected_ICA, kurtosis_list = find_ICA_comp(credit_X_train, 2)
+    ICA_df = combine_reduced_initial(selected_ICA, credit_Y_train)
+    ICA_df.to_csv(data_folder+'credit_ICA2.csv', encoding='utf-8', index=False)
+    
+    # PCA
+    reduced_PCA = PCA(n_components=13).fit_transform(credit_X_train)
+    PCA_df = combine_reduced_initial([reduced_PCA, credit_Y_train])
+    PCA_df.to_csv(data_folder+'credit_PCA13.csv', encoding='utf-8', index=False)
+    #reduced_full_ICA = np.c_[credit_X_train, selected_ICA, credit_Y_train]
+    #np.savetxt("credit_train_ICA.csv", reduced_full_ICA, delimiter=",")
     
     #######################################################################################################
     '''    

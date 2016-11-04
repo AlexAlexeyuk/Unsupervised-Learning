@@ -18,6 +18,9 @@ import os
 import csv
 import operator
 
+#from user import User
+#import svm_wine_reduction.py
+#http://scikit-learn.org/stable/modules/classes.html#module-sklearn.model_selection
 
 from sklearn import metrics
 from sklearn.metrics import accuracy_score
@@ -34,6 +37,9 @@ from itertools import cycle
 from sklearn.metrics import roc_auc_score
 from sklearn import mixture
 from matplotlib.colors import LogNorm
+from sklearn.neural_network import MLPClassifier
+from sklearn.model_selection import cross_val_score, StratifiedKFold
+from sklearn import cross_validation
 
 def get_path(rel_path):
     script_dir = os.path.dirname(__file__) #absolute dir the script is in
@@ -56,6 +62,10 @@ def get_auc_score(clf, X, Y):
     pred_Y = clf.predict(X)
     auc = roc_auc_score(Y, pred_Y)
     return auc
+
+def plot_df_matrix(df):
+    df_norm = (df - df.mean()) / (df.max() - df.min())
+    pd.scatter_matrix(df_norm, alpha = 0.3, figsize = (30,30), diagonal = 'kde');
 
 def plot_variance_retained(data_X):
     pca = PCA()
@@ -118,7 +128,7 @@ def eblow(data_X, n):
     k_range = range(1, n+1)
     
     # Fit the kmeans model for each n_clusters = k
-    k_means_var = [KMeans(n_clusters=k, n_init=20).fit(data_X) for k in k_range]
+    k_means_var = [KMeans(n_clusters=k, n_init=50).fit(data_X) for k in k_range]
     
     # Pull out the cluster centers for each model
     centroids = [X.cluster_centers_ for X in k_means_var]
@@ -168,7 +178,71 @@ def bench_k_means(estimator, name, data_X, labels):
              #metrics.silhouette_score(data_X, estimator.labels_,
              #                         metric='euclidean',
              #                         sample_size=sample_size)))
+def voronoi_vis(X, est, h, title):
+    # Step size of the mesh. Decrease to increase the quality of the VQ.
+    #h = 0.02     # point in the mesh [x_min, x_max]x[y_min, y_max].
+    
+    # Plot the decision boundary. For that, we will assign a color to each
+    x_min, x_max = X[:, 0].min() - 1, X[:, 0].max() + 1
+    y_min, y_max = X[:, 1].min() - 1, X[:, 1].max() + 1
+    xx, yy = np.meshgrid(np.arange(x_min, x_max, h), np.arange(y_min, y_max, h))
+    
+    # Obtain labels for each point in mesh. Use last trained model.
+    Z = est.predict(np.c_[xx.ravel(), yy.ravel()])
+    
+    # Put the result into a color plot
+    Z = Z.reshape(xx.shape)
+    plt.figure(1)
+    plt.clf()
+    plt.imshow(Z, interpolation='nearest',
+               extent=(xx.min(), xx.max(), yy.min(), yy.max()),
+               cmap=plt.cm.Paired,
+               aspect='auto', origin='lower')
+    
+    plt.plot(X[:, 0], X[:, 1], 'k.', markersize=2)
+    # Plot the centroids as a white X
+    centroids = est.cluster_centers_
+    plt.scatter(centroids[:, 0], centroids[:, 1],
+                marker='x', s=169, linewidths=3,
+                color='w', zorder=10)
+    plt.title(title)
+    plt.xlim(x_min, x_max)
+    plt.ylim(y_min, y_max)
+    plt.xticks(())
+    plt.yticks(())
+    plt.show()
 
+def plotGMM(est, data_X):
+    # display predicted scores by the model as a contour plot
+    ''' 
+    x = np.linspace(-20., 30.)
+    y = np.linspace(-20., 40.)
+    X, Y = np.meshgrid(x, y)
+    #XX = np.array([X.ravel(), Y.ravel(), z.ravel()]).T
+    XX = np.linspace(np.min(data_X), np.max(data_X), 11)
+    Z = -est.score_samples(XX)
+    Z = Z.reshape(X.shape)
+    
+    CS = plt.contour(X, Y, norm=LogNorm(vmin=1.0, vmax=1000.0))
+    CB = plt.colorbar(CS, shrink=0.8, extend='both')
+    plt.scatter(data_X[:, 0], data_X[:, 1], .8)
+    
+    plt.title('Negative log-likelihood predicted by a GMM')
+    plt.axis('tight')
+    plt.show()
+    '''    
+    '''    
+    delta = 0.025
+    x = np.arange(-10, 10, delta)
+    y = np.arange(-6, 12, delta)
+    X, Y = np.meshgrid(x, y)
+    #print g.means_
+    plt.plot(g.means_[0][0],g.means_[0][1], '+', markersize=13, mew=3)
+    plt.plot(g.means_[1][0],g.means_[1][1], '+', markersize=13, mew=3)
+    plt.plot(g.means_[2][0],g.means_[2][1], '+', markersize=13, mew=3)
+    plt.plot(g.means_[3][0],g.means_[3][1], '+', markersize=13, mew=3)
+    '''
+    
 def grid_traversal_k_attr(data_X, data_Y, attributes):
     for K in range(2, 22, 2):
         for NUM_ATTR in attributes:
@@ -218,9 +292,8 @@ def grid_traversal_k_attr(data_X, data_Y, attributes):
                     visualize(X, est, "K-means. Credit. {0}-reduced".format(name))
             
                                     
-def fit_estimators(estimators, labels, filename, NUM_ATTR, K):
+def fit_estimators(estimators, labels, NUM_ATTR, K):
     datarows = []
-    
     for name, est_list in estimators.items():
         estimator, data_X, time_reduction = est_list
         
@@ -228,14 +301,17 @@ def fit_estimators(estimators, labels, filename, NUM_ATTR, K):
         t_start = time()
         estimator.fit(data_X)
         t_fit = time() - t_start
-        
-        silhouette = 0
+
+        silhouette, bic = 0, 0
+        header = "Name,#Features,Clusters#,Cluster#0,Cluster#1,Accuracy,Silhouette,BIC,\
+        TimeKmeans,TimeRed,inertia,homo,compl,v-means,ARI,AMI,AUC".split(",")
+
         # if ground-truth labels are available
         if (((K == credit_labels_num and len(labels) == len(credit_Y)) or 
             (K == wine_labels_num and len(labels) == len(credit_Y))) and
             type(estimator) != mixture.GaussianMixture):
-            #accuracy = get_accuracy(estimator, data_X, labels, name)
-            accuracy = accuracy_score(credit_Y, estimator.labels_)
+            accuracy = get_accuracy(estimator, data_X, labels, name)
+            #accuracy = accuracy_score(data_X, estimator.labels_)
             auc = 0 #get_auc_score(estimator, data_X, labels)
             homogeneity = metrics.homogeneity_score(labels, estimator.labels_)
             completeness = metrics.completeness_score(labels, estimator.labels_)
@@ -252,101 +328,48 @@ def fit_estimators(estimators, labels, filename, NUM_ATTR, K):
             accuracy, auc, homogeneity, completeness,v_measure, ari, ami = [0] *7
             cluster_num0,cluster_num1,inertia = [0] * 3
         
-        bic = 0
+        filename = ""
         if type(estimator) == mixture.GaussianMixture:
+            filename = "{0}.csv".format(gmm_folder + name)            
             bic = estimator.bic(data_X)
+            # get silhouette score
+            em_labels = estimator.predict(data_X)
+            silhouette = metrics.silhouette_score(data_X, em_labels,
+                                          metric='euclidean',
+                                          sample_size=silhouette_sample)
+                                          
+            datarows.append([name, NUM_ATTR, K, "{:.2f}".format(bic),
+                             "{:.3f}".format(silhouette), "{:.2f}".format(t_fit), 
+                             "{:.2f}".format(time_reduction)])
+            header = "Name,#Features,Clusters#,BIC,Silhouette,TimeKmeans,TimeRed".split(",")
         
         else:
             # silhouette is internal metrics independent of ground-truth
+            filename = "{0}.csv".format(km_folder + name)
             silhouette = metrics.silhouette_score(data_X, estimator.labels_,
                                           metric='euclidean',
-                                          sample_size=silhouette_sample)        
-        
-        print('%11s      %.2f           %.2f         %.2f          %.3f     %.2f      %.2f       %.2fs        %.2fs'
-          % (name, cluster_num0, cluster_num1, accuracy, silhouette, bic, auc, t_fit, time_reduction))
-    
-        datarows.append([name, NUM_ATTR, K, "{:.2f}".format(cluster_num0), "{:.2f}".format(cluster_num1), 
+                                          sample_size=silhouette_sample)
+                                          
+            datarows.append([name, NUM_ATTR, K, "{:.2f}".format(cluster_num0), "{:.2f}".format(cluster_num1), 
                          "{:.2f}".format(accuracy), "{:.3f}".format(silhouette), "{:.2f}".format(bic),
                          "{:.2f}".format(t_fit), "{:.2f}".format(time_reduction),
                          "{:.2E}".format(inertia), homogeneity, 
                          completeness, v_measure, ari, ami, "{:.2f}".format(auc)])
-                         
+                
+        print('%11s      %.2f           %.2f         %.2f          %.3f     %.2f      %.2f       %.2fs        %.2fs'
+          % (name, cluster_num0, cluster_num1, accuracy, silhouette, bic, auc, t_fit, time_reduction))
+    
+    
+    # save in a file the result                     
     is_file = os.path.exists(filename)
     with open(filename, 'ab') as csvfile:
         writer = csv.writer(csvfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-        if not is_file:        
-            header = "Name,#Features,Clusters#,Cluster#0,Cluster#1,Accuracy,Silhouette,BIC,\
-            TimeKmeans,TimeRed,inertia,homo,compl,v-means,ARI,AMI,AUC".split(",")
+        if not is_file:      
             writer.writerow(header)    
         writer.writerows(datarows)
                                       
 
-def voronoi_vis(X, est, h, title):
-    # Step size of the mesh. Decrease to increase the quality of the VQ.
-    #h = 0.02     # point in the mesh [x_min, x_max]x[y_min, y_max].
-    
-    # Plot the decision boundary. For that, we will assign a color to each
-    x_min, x_max = X[:, 0].min() - 1, X[:, 0].max() + 1
-    y_min, y_max = X[:, 1].min() - 1, X[:, 1].max() + 1
-    xx, yy = np.meshgrid(np.arange(x_min, x_max, h), np.arange(y_min, y_max, h))
-    
-    # Obtain labels for each point in mesh. Use last trained model.
-    Z = est.predict(np.c_[xx.ravel(), yy.ravel()])
-    
-    # Put the result into a color plot
-    Z = Z.reshape(xx.shape)
-    plt.figure(1)
-    plt.clf()
-    plt.imshow(Z, interpolation='nearest',
-               extent=(xx.min(), xx.max(), yy.min(), yy.max()),
-               cmap=plt.cm.Paired,
-               aspect='auto', origin='lower')
-    
-    plt.plot(X[:, 0], X[:, 1], 'k.', markersize=2)
-    # Plot the centroids as a white X
-    centroids = est.cluster_centers_
-    plt.scatter(centroids[:, 0], centroids[:, 1],
-                marker='x', s=169, linewidths=3,
-                color='w', zorder=10)
-    plt.title(title)
-    plt.xlim(x_min, x_max)
-    plt.ylim(y_min, y_max)
-    plt.xticks(())
-    plt.yticks(())
-    plt.show()
 
-def plotGMM(est, data_X):
-    # display predicted scores by the model as a contour plot
-     
-    x = np.linspace(-20., 30.)
-    y = np.linspace(-20., 40.)
-    z = np.linspace(-20., 40.)
-    X, Y = np.meshgrid(x, y)
-    #XX = np.array([X.ravel(), Y.ravel(), z.ravel()]).T
-    XX = np.linspace(np.min(data_X), np.max(data_X), 11)
-    Z = -est.score_samples(XX)
-    #Z = Z.reshape(X.shape)
-    
-    CS = plt.contour(X, Y, Z, norm=LogNorm(vmin=1.0, vmax=1000.0),
-                     levels=np.logspace(0, 3, 10))
-    CB = plt.colorbar(CS, shrink=0.8, extend='both')
-    plt.scatter(data_X[:, 0], data_X[:, 1], .8)
-    
-    plt.title('Negative log-likelihood predicted by a GMM')
-    plt.axis('tight')
-    plt.show()
-        
-    '''    
-    delta = 0.025
-    x = np.arange(-10, 10, delta)
-    y = np.arange(-6, 12, delta)
-    X, Y = np.meshgrid(x, y)
-    #print g.means_
-    plt.plot(g.means_[0][0],g.means_[0][1], '+', markersize=13, mew=3)
-    plt.plot(g.means_[1][0],g.means_[1][1], '+', markersize=13, mew=3)
-    plt.plot(g.means_[2][0],g.means_[2][1], '+', markersize=13, mew=3)
-    plt.plot(g.means_[3][0],g.means_[3][1], '+', markersize=13, mew=3)
-    '''
     
 def visualize(X, est, title, K):
         colors = cycle('bgrcmykbgrcmykbgrcmykbgrcmyk')#br        
@@ -555,10 +578,9 @@ def test_estimator(name, estimator, reduced_data, data_Y, time_red, NUM_ATTR, K)
     print(100 * '_')
     print('% 10s' % 'Features' '    Cluster #0, %     Cluster #1, %'  
         '  Accuracy, %     Silhouette      BIC      AUC       Time      TimeRed') 
-    out_file = output_file.format(name)
     
     # Fit estimator, analize performance, and output data_X to *.csv
-    fit_estimators(estimators, data_Y, out_file, NUM_ATTR, K)
+    fit_estimators(estimators, data_Y, NUM_ATTR, K)
 
 def test_PCA(data_X, data_Y):
     #for K in range(2, 20, 2):
@@ -599,15 +621,15 @@ def test_ICA(data_X, data_Y):
             #voronoi_vis(reduced_data, kmeans, 0.02, "K-means. ICA reduced")
             
 def test_plain(data_X, data_Y, filename, est_name):
-    NUM_ATTR = data_X.shape[0]
+    NUM_ATTR = data_X.shape[1]
         
-    for K in range(2, 21):
+    for K in range(2, 20):
         if est_name != "gmm":
             kmeans = KMeans(init='k-means++', n_clusters=K, n_init=50)
             test_estimator(filename, kmeans, data_X, data_Y, 0, NUM_ATTR, K)
         else:
             gmm = mixture.GaussianMixture(n_components=K, covariance_type='full',
-                                          max_iter=200, random_state=42, n_init=5)
+                                          max_iter=200, random_state=42, n_init=20)
             test_estimator(filename, gmm, data_X, data_Y, 0, NUM_ATTR, K)
             
 
@@ -630,21 +652,25 @@ def combine_reduced_initial(data_reduced, data_Y, data_X=None):
     return full_df
 
 def save_to_test():
-    PC_num = 13
-    IC_num = 23
+    PC_num = 23
+    IC_num = 23    
+    for PC_num in range(1, 23):
+        IC_num = PC_num
+    #PC_num = 23
+    #IC_num = 23
     
-    #-----------------------------| Reduced Data [Only] |--------------------------------------#
-    # ICA
-    selected_ICA, kurtosis_list = find_ICA_comp(credit_X_train, IC_num)
-    ICA_df = combine_reduced_initial(selected_ICA, credit_Y_train)
-    ICA_df.to_csv(data_folder+'credit_ICA{0}.csv'.format(IC_num), encoding='utf-8', index=False)
+        #-----------------------------| Reduced Data [Only] |--------------------------------------#
+        # ICA
+        selected_ICA, kurtosis_list = find_ICA_comp(credit_X_train, IC_num)
+        ICA_df = combine_reduced_initial(selected_ICA, credit_Y_train)
+        ICA_df.to_csv(data_folder+'credit_ICA{0}.csv'.format(IC_num), encoding='utf-8', index=False)
+        
+        # PCA
+        reduced_PCA = PCA(n_components=PC_num).fit_transform(credit_X_train)
+        PCA_df = combine_reduced_initial(reduced_PCA, credit_Y_train)
+        PCA_df.to_csv(data_folder+'credit_PCA{0}.csv'.format(PC_num), encoding='utf-8', index=False)
     
-    # PCA
-    reduced_PCA = PCA(n_components=PC_num).fit_transform(credit_X_train)
-    PCA_df = combine_reduced_initial(reduced_PCA, credit_Y_train)
-    PCA_df.to_csv(data_folder+'credit_PCA{0}.csv'.format(PC_num), encoding='utf-8', index=False)
-    
-    print("\nData saved\n")
+        print("\nData saved\n")
     #-----------------------------| Mixed of Raw and Reduced Data|------------------------------#
     '''
     # ICA
@@ -657,21 +683,49 @@ def save_to_test():
     PCA_df = combine_reduced_initial(credit_X_train, reduced_PCA, credit_Y_train)
     PCA_df.to_csv(data_folder+'credit_PCA{0}.csv'.format(PC_num), encoding='utf-8', index=False)
     '''
+
+# Function used to print cross-validation scores
+def training_score(est, X, y, cv):
+    acc = cross_val_score(est, X, y, cv = cv, scoring='accuracy')
+    roc = cross_val_score(est, X, y, cv = cv, scoring='roc_auc')
+    print '5-fold Train CV | Accuracy:', round(np.mean(acc), 3),'+/-', \
+    round(np.std(acc), 3),'| ROC AUC:', round(np.mean(roc), 3), '+/-', round(np.std(roc), 3)
+    return acc
+
+#http://scikit-learn.org/stable/modules/generated/sklearn.neural_network.MLPClassifier.html
+def fit_ann(data_X, data_Y):
+    ann = MLPClassifier(alpha=1, hidden_layer_sizes=(100, ), 
+                        learning_rate='adaptive', learning_rate_init=0.001,
+                        momentum=0.4, max_iter=500)
+                        
+    #ann.fit(data_X, data_Y)
+    cv = cross_validation.StratifiedShuffleSplit(data_Y, n_iter=5,test_size=0.2, random_state=42)
+    cv_score = training_score(ann, data_X, data_Y, cv)
+    cross_val_score = np.array(cv_score).mean()
+    
+    print "cv_score: {0:2f}".format(cross_val_score)
+    
     
 if __name__ == "__main__":
     np.random.seed(42)
     #NUM_ATTR = 2
     silhouette_sample = 15000
     attr_list_full = [2, 5, 10, 15, 20]
+    km_folder = get_path("../analysis_KM/")
+    gmm_folder = get_path("../analysis_EM/")
     output_file = "{0}.csv"
     data_folder = get_path("../../datasets/weka/")
     
-    # Read in Data Sets
-    credit_df = pd.read_csv(get_path("../../datasets/credit_full.csv"))
-    credit_df_train = pd.read_csv(get_path("../../datasets/credit_train.csv"))
-    wine_df = pd.read_csv(get_path("../../datasets/wine_full.csv"))
-    wine_df_train = pd.read_csv(get_path("../../datasets/wine_train.csv"))
     
+    # Read in Data Sets
+    try:
+        credit_df = pd.read_csv(get_path("../../datasets/credit_full.csv"))
+        credit_df_train = pd.read_csv(get_path("../../datasets/credit_train.csv"))
+        wine_df = pd.read_csv(get_path("../../datasets/wine_full.csv"))
+        wine_df_train = pd.read_csv(get_path("../../datasets/wine_train.csv"))
+    except:
+        print("Datasets could not be loaded")
+        
     credit_X, credit_Y = get_xy(credit_df)
     credit_X_train, credit_Y_train = get_xy(credit_df_train)
     wine_X, wine_Y = get_xy(wine_df)
@@ -685,12 +739,24 @@ if __name__ == "__main__":
     print_statistics(credit_X, credit_Y, "Credit Dataset")
     print_statistics(wine_X, wine_Y, "Wine Dataset")
     
-    test_plain(wine_X, wine_Y, "wine-gmm-raw", "gmm")
+    reduced_PCA = PCA(n_components=23).fit_transform(credit_X_train)
+    selected_ICA, kurtosis_list = find_ICA_comp(credit_X_train, 15)
+    fit_ann(reduced_PCA, credit_Y_train)    
+    
+    #plot_df_matrix(credit_df)
+    #plot_df_matrix(wine_df)
+
+    #test_plain(credit_X, credit_Y, "credit-gmm-raw", "gmm")
+    #test_plain(wine_X, wine_Y, "wine-gmm-raw", "gmm")
+    
+    #test_plain(wine_X, wine_Y, "wine-kmeans-raw", "km")
+    #test_plain(credit_X, credit_Y, "credit-kmeans-raw", "km")
     #grid_traversal_k_attr(data_X)
     
     #find_PCA_comp(wine_X, "PCA-wine-var.csv")
     
-    #selected_ICA, kurtosis_list = find_ICA_comp(wine_X, 11)
+    #selected_ICA, kurtosis_list = find_ICA_comp(credit_X, 1)
+    #test_plain(selected_ICA, credit_Y, "credit-km-ICA1", "km")
     #plot2D_mixture(selected_ICA, 11)
     #plot_distr_hist(selected_ICA, kurtosis_list)
     

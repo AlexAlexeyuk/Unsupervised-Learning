@@ -34,6 +34,14 @@ from sklearn.metrics import roc_auc_score
 from sklearn import mixture
 from matplotlib.colors import LogNorm
 
+#links
+'''
+http://blog.haunschmid.name/dimensionality-reduction-1-understanding-pca-and-ica-using-r/
+#Independent_Component_Analysis_ICA
+http://www.statmethods.net/advstats/cluster.html
+http://www.everydayanalytics.ca/2014/06/pca-and-k-means-clustering-of-delta-aircraft.html
+https://plot.ly/ipython-notebooks/principal-component-analysis/
+'''
 def get_path(rel_path):
     script_dir = os.path.dirname(__file__) #absolute dir the script is in
     abs_file_path = os.path.join(script_dir, rel_path)
@@ -217,7 +225,7 @@ def grid_traversal_k_attr(data_X, data_Y, attributes):
                     visualize(X, est, "K-means. Credit. {0}-reduced".format(name))
             
                                     
-def fit_estimators(estimators, labels, filename, NUM_ATTR, K):
+def fit_estimators(estimators, labels, NUM_ATTR, K):
     datarows = []
     for name, est_list in estimators.items():
         estimator, data_X, time_reduction = est_list
@@ -226,8 +234,11 @@ def fit_estimators(estimators, labels, filename, NUM_ATTR, K):
         t_start = time()
         estimator.fit(data_X)
         t_fit = time() - t_start
-        
-        silhouette = 0
+
+        silhouette, bic = 0, 0
+        header = "Name,#Features,Clusters#,Cluster#0,Cluster#1,Accuracy,Silhouette,BIC,\
+        TimeKmeans,TimeRed,inertia,homo,compl,v-means,ARI,AMI,AUC".split(",")
+
         # if ground-truth labels are available
         if (((K == credit_labels_num and len(labels) == len(credit_Y)) or 
             (K == wine_labels_num and len(labels) == len(credit_Y))) and
@@ -250,31 +261,37 @@ def fit_estimators(estimators, labels, filename, NUM_ATTR, K):
             accuracy, auc, homogeneity, completeness,v_measure, ari, ami = [0] *7
             cluster_num0,cluster_num1,inertia = [0] * 3
         
-        bic = 0
+        filename = ""
         if type(estimator) == mixture.GaussianMixture:
+            filename = "{0}.csv".format(gmm_foler + name)            
             bic = estimator.bic(data_X)
+            datarows.append([name, NUM_ATTR, K, "{:.2f}".format(bic),
+                             "{:.2f}".format(t_fit), 
+                             "{:.2f}".format(time_reduction)])
+            header = "Name,#Features,Clusters#,BIC,TimeKmeans,TimeRed".split(",")
         
         else:
             # silhouette is internal metrics independent of ground-truth
+            filename = "{0}.csv".format(km_foler + name)
             silhouette = metrics.silhouette_score(data_X, estimator.labels_,
                                           metric='euclidean',
-                                          sample_size=silhouette_sample)        
-        
-        print('%11s      %.2f           %.2f         %.2f          %.3f     %.2f      %.2f       %.2fs        %.2fs'
-          % (name, cluster_num0, cluster_num1, accuracy, silhouette, bic, auc, t_fit, time_reduction))
-    
-        datarows.append([name, NUM_ATTR, K, "{:.2f}".format(cluster_num0), "{:.2f}".format(cluster_num1), 
+                                          sample_size=silhouette_sample)
+                                          
+            datarows.append([name, NUM_ATTR, K, "{:.2f}".format(cluster_num0), "{:.2f}".format(cluster_num1), 
                          "{:.2f}".format(accuracy), "{:.3f}".format(silhouette), "{:.2f}".format(bic),
                          "{:.2f}".format(t_fit), "{:.2f}".format(time_reduction),
                          "{:.2E}".format(inertia), homogeneity, 
                          completeness, v_measure, ari, ami, "{:.2f}".format(auc)])
-                         
+                
+        print('%11s      %.2f           %.2f         %.2f          %.3f     %.2f      %.2f       %.2fs        %.2fs'
+          % (name, cluster_num0, cluster_num1, accuracy, silhouette, bic, auc, t_fit, time_reduction))
+    
+    
+    # save in a file the result                     
     is_file = os.path.exists(filename)
     with open(filename, 'ab') as csvfile:
         writer = csv.writer(csvfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-        if not is_file:        
-            header = "Name,#Features,Clusters#,Cluster#0,Cluster#1,Accuracy,Silhouette,BIC,\
-            TimeKmeans,TimeRed,inertia,homo,compl,v-means,ARI,AMI,AUC".split(",")
+        if not is_file:      
             writer.writerow(header)    
         writer.writerows(datarows)
                                       
@@ -314,11 +331,9 @@ def voronoi_vis(X, est, h, title):
     plt.show()
 
 def plotGMM(est, data_X):
-    # display predicted scores by the model as a contour plot
-     
+    # display predicted scores by the model as a contour plot  
     x = np.linspace(-20., 30.)
     y = np.linspace(-20., 40.)
-    z = np.linspace(-20., 40.)
     X, Y = np.meshgrid(x, y)
     #XX = np.array([X.ravel(), Y.ravel(), z.ravel()]).T
     XX = np.linspace(np.min(data_X), np.max(data_X), 11)
@@ -501,10 +516,9 @@ def test_estimator(name, estimator, reduced_data, data_Y, time_red, NUM_ATTR, K)
     print(100 * '_')
     print('% 10s' % 'Features' '    Cluster #0, %     Cluster #1, %'  
         '  Accuracy, %     Silhouette      BIC      AUC       Time      TimeRed') 
-    out_file = output_file.format(name)
     
     # Fit estimator, analize performance, and output data_X to *.csv
-    fit_estimators(estimators, data_Y, out_file, NUM_ATTR, K)
+    fit_estimators(estimators, data_Y, NUM_ATTR, K)
 
 def test_PCA(data_X, data_Y):
     for K in range(2, 20, 2):
@@ -542,16 +556,16 @@ def test_ICA(data_X, data_Y):
             #visualize3D(reduced_data, kmeans, "K-means. ICA reduced")
             #voronoi_vis(reduced_data, kmeans, 0.02, "K-means. ICA reduced")
             
-def test_plain(data_X, data_Y, filename, est_name):
-    NUM_ATTR = data_X.shape[0]
-        
-    for K in range(2, 3):
-        if est_name == "gmm":
+
+def test_plain(data_X, data_Y, name, est_name):
+    NUM_ATTR = data_X.shape[1]  
+    for K in range(2, 10):
+        if est_name != "gmm":
             kmeans = KMeans(init='k-means++', n_clusters=K, n_init=50)
-            test_estimator(filename, kmeans, data_X, data_Y, 0, NUM_ATTR, K)
+            test_estimator(name, kmeans, data_X, data_Y, 0, NUM_ATTR, K)
         else:
             gmm = mixture.GaussianMixture(n_components=K, covariance_type='full', max_iter=200, random_state=42)
-            test_estimator(filename, gmm, data_X, data_Y, 0, NUM_ATTR, K)
+            test_estimator(name, gmm, data_X, data_Y, 0, NUM_ATTR, K)
                 
 
 if __name__ == "__main__":
@@ -559,7 +573,8 @@ if __name__ == "__main__":
     #NUM_ATTR = 2
     silhouette_sample = 15000
     attr_list_full = [2, 5, 10, 15, 20]
-    output_file = "{0}.csv"
+    km_foler = get_path("../analysis_KM/")
+    gmm_foler = get_path("../analysis_EM/")
     
     # Read Datasets
     credit_df = pd.read_csv(get_path("../../datasets/credit_full.csv"))
@@ -582,8 +597,8 @@ if __name__ == "__main__":
     #Data Statistics
     print_statistics(credit_X, credit_Y, "Credit Dataset")
     print_statistics(wine_X, wine_Y, "Wine Dataset")
-    
-    test_plain(wine_X, wine_Y, get_path("../analysis_EM/wine-gmm-raw"))
+
+    test_plain(wine_X, wine_Y, "wine-credit-raw", "kmeans")
     #grid_traversal_k_attr(data_X)
     
     #find_PCA_comp(wine_X, "PCA-wine-var.csv")
@@ -597,6 +612,8 @@ if __name__ == "__main__":
     #test_ICA(credit_X, credit_Y)
     
     #subprocess.call(['rundll32', 'user.exe,ExitWindowsExec')
+    
+    
     
     
     #######################################################################################################

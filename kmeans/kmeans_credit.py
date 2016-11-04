@@ -220,6 +220,7 @@ def grid_traversal_k_attr(data_X, data_Y, attributes):
                                     
 def fit_estimators(estimators, labels, filename, NUM_ATTR, K):
     datarows = []
+    
     for name, est_list in estimators.items():
         estimator, data_X, time_reduction = est_list
         
@@ -600,13 +601,15 @@ def test_ICA(data_X, data_Y):
 def test_plain(data_X, data_Y, filename, est_name):
     NUM_ATTR = data_X.shape[0]
         
-    for K in range(2, 3):
-        if est_name == "gmm":
+    for K in range(2, 21):
+        if est_name != "gmm":
             kmeans = KMeans(init='k-means++', n_clusters=K, n_init=50)
             test_estimator(filename, kmeans, data_X, data_Y, 0, NUM_ATTR, K)
         else:
-            gmm = mixture.GaussianMixture(n_components=K, covariance_type='full', max_iter=200, random_state=42)
+            gmm = mixture.GaussianMixture(n_components=K, covariance_type='full',
+                                          max_iter=200, random_state=42, n_init=5)
             test_estimator(filename, gmm, data_X, data_Y, 0, NUM_ATTR, K)
+            
 
 def get_xy(df):
     X_raw = np.array(df.drop(df.columns[-1], 1))
@@ -614,15 +617,46 @@ def get_xy(df):
     X = scale(X_raw)
     return X, Y
 
-def combine_reduced_initial(data_list):
-    # concatenate    
-    full = np.c_[data_list]
-    #fdsfds = [x for x in data_list]
+def combine_reduced_initial(data_reduced, data_Y, data_X=None):
+    # concatenate
+    if data_X is None:        
+        full = np.c_[data_reduced, data_Y]
+    else:
+        full = np.c_[data_X, data_reduced, data_Y]
     
     # create Dataframe
     col_names = ["col" + str(x) for x in range(1, full.shape[1]+1)]
     full_df = pd.DataFrame(full, columns=col_names)                    
     return full_df
+
+def save_to_test():
+    PC_num = 13
+    IC_num = 23
+    
+    #-----------------------------| Reduced Data [Only] |--------------------------------------#
+    # ICA
+    selected_ICA, kurtosis_list = find_ICA_comp(credit_X_train, IC_num)
+    ICA_df = combine_reduced_initial(selected_ICA, credit_Y_train)
+    ICA_df.to_csv(data_folder+'credit_ICA{0}.csv'.format(IC_num), encoding='utf-8', index=False)
+    
+    # PCA
+    reduced_PCA = PCA(n_components=PC_num).fit_transform(credit_X_train)
+    PCA_df = combine_reduced_initial(reduced_PCA, credit_Y_train)
+    PCA_df.to_csv(data_folder+'credit_PCA{0}.csv'.format(PC_num), encoding='utf-8', index=False)
+    
+    print("\nData saved\n")
+    #-----------------------------| Mixed of Raw and Reduced Data|------------------------------#
+    '''
+    # ICA
+    selected_ICA = find_ICA_comp(credit_X_train, 2)
+    ICA_df = combine_reduced_initial(credit_X_train, selected_ICA, credit_Y_train)
+    ICA_df.to_csv(data_folder+'credit_ICA{0}.csv'.format(IC_num), encoding='utf-8', index=False)
+    
+    # PCA
+    reduced_PCA = PCA(n_components=13).fit_transform(credit_X_train)
+    PCA_df = combine_reduced_initial(credit_X_train, reduced_PCA, credit_Y_train)
+    PCA_df.to_csv(data_folder+'credit_PCA{0}.csv'.format(PC_num), encoding='utf-8', index=False)
+    '''
     
 if __name__ == "__main__":
     np.random.seed(42)
@@ -643,11 +677,15 @@ if __name__ == "__main__":
     wine_X, wine_Y = get_xy(wine_df)
     wine_X_train, wine_Y_train = get_xy(wine_df_train)
     
+    # number of labels
+    credit_labels_num = len(np.unique(credit_Y))
+    wine_labels_num = len(np.unique(wine_Y))
+    
     #Data Statistics
     print_statistics(credit_X, credit_Y, "Credit Dataset")
     print_statistics(wine_X, wine_Y, "Wine Dataset")
     
-    #test_plain(wine_X, wine_Y, "wine-gmm-raw", "gmm")
+    test_plain(wine_X, wine_Y, "wine-gmm-raw", "gmm")
     #grid_traversal_k_attr(data_X)
     
     #find_PCA_comp(wine_X, "PCA-wine-var.csv")
@@ -674,29 +712,10 @@ if __name__ == "__main__":
     
     
     #---------------------------------------Test Reduced Data ----------------------------#    
-    
+    #save_to_test()
     # Conbine Reduced Data and Initial
-    '''
-    # ICA
-    selected_ICA = find_ICA_comp(credit_X_train, 2)
-    ICA_df = combine_reduced_initial(credit_X_train, selected_ICA, credit_Y_train)
-    ICA_df.to_csv(data_folder+'credit_train_ICA.csv', encoding='utf-8', index=False)
     
-    # PCA
-    reduced_PCA = PCA(n_components=13).fit_transform(credit_X_train)
-    PCA_df = combine_reduced_initial(credit_X_train, reduced_PCA, credit_Y_train)
-    PCA_df.to_csv(data_folder+'credit_train_PCA.csv', encoding='utf-8', index=False)
-    '''
     
-    # ICA
-    selected_ICA, kurtosis_list = find_ICA_comp(credit_X_train, 2)
-    ICA_df = combine_reduced_initial(selected_ICA, credit_Y_train)
-    ICA_df.to_csv(data_folder+'credit_ICA2.csv', encoding='utf-8', index=False)
-    
-    # PCA
-    reduced_PCA = PCA(n_components=13).fit_transform(credit_X_train)
-    PCA_df = combine_reduced_initial([reduced_PCA, credit_Y_train])
-    PCA_df.to_csv(data_folder+'credit_PCA13.csv', encoding='utf-8', index=False)
     #reduced_full_ICA = np.c_[credit_X_train, selected_ICA, credit_Y_train]
     #np.savetxt("credit_train_ICA.csv", reduced_full_ICA, delimiter=",")
     

@@ -1,6 +1,10 @@
 """
-Unsupervised Learning
-clustering and reduction
+Goncharenko Nikolay 
+CS 7641: Machine Learning
+
+Assignment #3
+Unsupervised Learning and 
+Dimensionality Reduction
 """
 from __future__ import division #division of integers
 print(__doc__)
@@ -56,7 +60,8 @@ def get_accuracy(clf, X, Y, name='clf'):
         if pred_array[i] == Y[i]:
             correct += 1
     
-    # since algorithm labels clusters  randomly, choose the largest cluster
+    # since algorithm assigns clusters id randomly,  
+    # choose the largest cluster
     accuracy1 = correct/len(X)*100
     accuracy2 = 100 - accuracy1
     return max(accuracy1, accuracy2)
@@ -164,58 +169,7 @@ def eblow(data_X, n):
     plt.ylabel('BSS/TSS, %')
     plt.title('Variance Explained vs. K')
 
-def bench_k_means(estimator, name, data_X, labels):
-    t_start = time()
-    estimator.fit(data_X)
-    t_spent = time() - t_start
-    
-    homogeneity = metrics.homogeneity_score(labels, estimator.labels_)
-    completeness = metrics.completeness_score(labels, estimator.labels_)
-    v_measure = metrics.v_measure_score(labels, estimator.labels_)
-    ari = metrics.adjusted_rand_score(labels, estimator.labels_)
-    ami = metrics.adjusted_mutual_info_score(labels,  estimator.labels_)    
-    
-    print('% 11s   %.2fs    %.2E   %.3f   %.3f   %.3f   %.3f   %.3f'
-          % (name, t_spent, estimator.inertia_, homogeneity,
-             completeness, v_measure, ari, ami))
-             #metrics.silhouette_score(data_X, estimator.labels_,
-             #                         metric='euclidean',
-             #                         sample_size=sample_size)))
-def voronoi_vis(X, est, h, title):
-    # Step size of the mesh. Decrease to increase the quality of the VQ.
-    #h = 0.02     # point in the mesh [x_min, x_max]x[y_min, y_max].
-    
-    # Plot the decision boundary. For that, we will assign a color to each
-    x_min, x_max = X[:, 0].min() - 1, X[:, 0].max() + 1
-    y_min, y_max = X[:, 1].min() - 1, X[:, 1].max() + 1
-    xx, yy = np.meshgrid(np.arange(x_min, x_max, h), np.arange(y_min, y_max, h))
-    
-    # Obtain labels for each point in mesh. Use last trained model.
-    Z = est.predict(np.c_[xx.ravel(), yy.ravel()])
-    
-    # Put the result into a color plot
-    Z = Z.reshape(xx.shape)
-    plt.figure(1)
-    plt.clf()
-    plt.imshow(Z, interpolation='nearest',
-               extent=(xx.min(), xx.max(), yy.min(), yy.max()),
-               cmap=plt.cm.Paired,
-               aspect='auto', origin='lower')
-    
-    plt.plot(X[:, 0], X[:, 1], 'k.', markersize=2)
-    # Plot the centroids as a white X
-    centroids = est.cluster_centers_
-    plt.scatter(centroids[:, 0], centroids[:, 1],
-                marker='x', s=169, linewidths=3,
-                color='w', zorder=10)
-    plt.title(title)
-    plt.xlim(x_min, x_max)
-    plt.ylim(y_min, y_max)
-    plt.xticks(())
-    plt.yticks(())
-    plt.show()
-
-
+# http://scikit-learn.org/stable/auto_examples/model_selection/plot_learning_curve.html
 def plot_learning_curve(estimator, title, X, y, ylim=None, cv=None,
                         n_jobs=1, train_sizes=np.linspace(0.1, 1.0, 5)):
     """
@@ -276,9 +230,6 @@ def plot_learning_curve(estimator, title, X, y, ylim=None, cv=None,
              label="Cross-validation score")
 
     plt.legend(loc="best")
-
-    #print "train scores\n", train_scores_mean
-    #print "test scores \n", test_scores_mean
     
     return plt, train_scores_mean, test_scores_mean
 
@@ -293,53 +244,6 @@ def fit_svm(data_X, data_Y):
     #heldout_score = clf.score(test_X, test_Y)
     return cv_mean
     
-def grid_traversal_k_attr(data_X, data_Y, attributes):
-    for K in range(2, 22, 2):
-        for NUM_ATTR in attributes:
-            # Initialize k-means objects
-            kmeans = KMeans(init='k-means++', n_clusters=K, n_init=50)
-            kmeansPCA = KMeans(init='k-means++', n_clusters=K, n_init=50)
-            kmeansICA = KMeans(init='k-means++', n_clusters=K, n_init=50)
-            kmeansRP = KMeans(init='k-means++', n_clusters=K, n_init=50)
-            kmeansFA = KMeans(init='k-means++', n_clusters=K, n_init=50)
-            
-            # run Dimensionality Reduction Algorithms                        
-            t_start = time()
-            reduced_PCA = PCA(n_components=NUM_ATTR).fit_transform(data_X)
-            t_PCA = time() - t_start
-            
-            t_start = time()
-            reduced_ICA = FastICA(n_components=NUM_ATTR, random_state=42).fit_transform(data_X)
-            t_ICA = time() - t_start
-            
-            t_start = time()
-            reduced_RP = random_projection.GaussianRandomProjection(n_components=NUM_ATTR).fit_transform(data_X)
-            t_RP = time() - t_start
-            
-            t_start = time() #http://scikit-learn.org/stable/modules/decomposition.html#factor-analysis
-            reduced_FA = FactorAnalysis(n_components=NUM_ATTR, random_state=37, max_iter=3000).fit_transform(data_X)
-            t_FA = time() - t_start
-            
-            # Dict of list containing: kmeans object, reduced data_X, time for reduction 
-            estimators = {"plain":[kmeans, data_X, 0],
-                           "PCA":[kmeansPCA, reduced_PCA, t_PCA], 
-                           "ICA":[kmeansICA, reduced_ICA, t_ICA],
-                           "RP":[kmeansRP, reduced_RP, t_RP], 
-                           "FA":[kmeansFA, reduced_FA, t_FA]}
-            
-            print(100 * '_')
-            print('% 10s' % 'Features' '    Cluster #0, %     Cluster #1, %   Accuracy, %     Silhouette    AUC       Time      TimeRed')
-            
-            out_file = "credit_kmeans_attr_K.csv"
-            # Fit estimator, analize performance, and output data_X to *.csv
-            fit_estimators(estimators, data_Y, out_file, NUM_ATTR, K)
-            
-            # Visualize the results on the reduced data
-            if NUM_ATTR < 2:
-                #colors = cycle('br')
-                for name, est_list in estimators.items():
-                    est, X, time = est_list
-                    visualize(X, est, "K-means. Credit. {0}-reduced".format(name))
                     
 def print_cluster_sizes(estimator, data_X, data_Y, K):
     # get labels
@@ -373,7 +277,7 @@ def fit_estimators(estimators, data_Y, K):
         estimator.fit(data_X)
         t_fit = time() - t_start
 
-        silhouette, bic, inertia, auc = 0, 0, 0, 0
+        silhouette, bic, inertia, auc = [0]*4
         NUM_ATTR = data_X.shape[1]
         header = "Name,#Features,Clusters#,Cluster#0,Cluster#1,Accuracy,Silhouette,BIC,\
         TimeKmeans,TimeRed,inertia,homo,compl,v-means,ARI,AMI,AUC".split(",")
@@ -387,7 +291,7 @@ def fit_estimators(estimators, data_Y, K):
             else:
                 est_labels = estimator.labels_
             accuracy = get_accuracy(estimator, data_X, data_Y, name)
-            #accuracy = accuracy_score(data_X, est_labels)
+            accuracy = accuracy_score(data_X, est_labels)
             #accuracy = cross_val_score(estimator, data_X, credit_Y, cv=cv, scoring='accuracy')
             #auc = cross_val_score(estimator, data_X, credit_Y, cv=cv, scoring='roc_auc')
             #auc = get_auc_score(estimator, data_X, data_Y)
@@ -404,8 +308,8 @@ def fit_estimators(estimators, data_Y, K):
             if type(estimator) != mixture.GaussianMixture:
                 inertia = estimator.inertia_
         else:
-            accuracy, auc, homogeneity, completeness,v_measure, ari, ami = [0] *7
-            cluster_num0,cluster_num1,inertia = [0] * 3
+            accuracy, auc, homogeneity, completeness,v_measure, ari, ami = [0]*7
+            cluster_num0,cluster_num1,inertia = [0]*3
         
         filename = ""
         if type(estimator) == mixture.GaussianMixture:
@@ -443,7 +347,7 @@ def fit_estimators(estimators, data_Y, K):
           % (name, cluster_num0, cluster_num1, accuracy, silhouette, bic, auc, t_fit, time_reduction))
     
     
-    # save in a file the result                     
+    # save the result                     
     is_file = os.path.exists(filename)
     with open(filename, 'ab') as csvfile:
         writer = csv.writer(csvfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
@@ -484,13 +388,10 @@ def visualize3D(X, est, title, K=None):
         labels = est.labels_ 
     
     fignum = 1
-    #for name, est in estimators.items():
     fig = plt.figure(fignum, figsize=(4, 3))
     plt.clf()
     ax = Axes3D(fig, rect=[0, 0, .95, 1])
-
     plt.cla()
-    #est.fit(X)
        
     ax.scatter(X[:, 0], X[:, 1], X[:, 2], c=labels.astype(np.float))
 
@@ -604,9 +505,9 @@ def get_reduced_ICA(data_X, num_comp_keep):
 
 
 def find_ICA_comp(data_X):
-    
-    #t_start = time()
+      
     ica = FastICA(random_state=42)
+    #t_start = time()    
     reduced_ICA = ica.fit_transform(data_X)
     #time_red = time() - t_start
     
@@ -625,45 +526,7 @@ def find_ICA_comp(data_X):
         kurtosis_list.append(kurtosis)
 
     #print "\nKurtosis by a companent:\n{0}".format(kurtosis_list)
-    #print "\nSkews by a companent:\n{0}".format(skew_list)    
-    '''
-    # select components to remove where kurtosis <= threshold
-    remove_components = []
-    remove_kurtosis = []
-    for i in range(0, len(kurtosis_list)):
-        if kurtosis_list[i] <= threshold and kurtosis_list[i] >= 0:
-            remove_components.append(i)
-            remove_kurtosis.append(kurtosis_list[i])
-            
-    #remove components that didn't pass threshold
-    reduced_ICA_leave = np.delete(reduced_ICA_sorted, remove_components, 1)
-    kurtosis_list_leave = [x for x in kurtosis_list if x not in remove_kurtosis]
-    '''
-    '''
-    # threshold as a number of sorted components:
-    # leave all negative + add 'threshold' num of largest in descending order
-    negative_kurt_num = len([x for x in kurtosis_list if x < 0])
-    largest_num = threshold - negative_kurt_num # accounts for first negative_kurt_num elements
-    kurtosis_list_leave = kurtosis_list[:2] + kurtosis_list[-largest_num:]
-    reduced_ICA_leave = np.c_[reduced_ICA_sorted[:,:2],reduced_ICA_sorted[:,-largest_num:]]
-    '''
-    
-    '''
-    leave = [1, 11]
-    for x in range(len(reduced_ICA[0])):
-        if x not in leave:
-            remove_components.append(x)
-    '''
-    
-    '''
-    reduced_ICA_new = reduced_ICA_leave
-    kurtosis_list_new = []
-    for i in range(0, len(reduced_ICA_new[0])):
-        kurtosis = stats.kurtosis(reduced_ICA_new[:,i], axis=0, fisher=True, bias=True)
-        kurtosis_list_new.append(kurtosis)
-    
-    print "\nKurtosis after removal:\n{0}".format(kurtosis_list_new) 
-    '''
+    #print "\nSkews by a companent:\n{0}".format(skew_list)
     return reduced_ICA_sorted, kurtosis_list, ica
   
 
@@ -672,7 +535,7 @@ def find_PCA_comp(data_X, filename):
     pca.fit(data_X)
     
     eigenvals = pca.explained_variance_ratio_
-    #Cumulative Variance explains
+    #Cumulative Variance Explained
     cum_varuiance = np.cumsum(np.round(eigenvals, decimals=4)*100)
     print cum_varuiance
     
@@ -709,7 +572,7 @@ def find_FA(data_X, data_Y, filename, est_name):
         select_comp_supervised(reduced_FA, data_Y, filename, NUM_ATTR, est_name)
                 
 
-# Generate projection          
+# Randomized projection          
 def find_RP(data_X, data_Y, filename, est_name):
     for NUM_ATTR in range(1, data_X.shape[1]+1):
         for i in range(5):
@@ -866,8 +729,7 @@ def save_to_test():
     IC_num = 23    
     for PC_num in range(1, 23):
         IC_num = PC_num
-    #PC_num = 23
-    #IC_num = 23
+        
         #-----------------------------| Reduced Data [Only] |--------------------------------------#
         # ICA
         selected_ICA, kurtosis_list = find_ICA_comp(credit_X_train, IC_num)
@@ -881,22 +743,7 @@ def save_to_test():
     
         print("\nData saved\n")
         #-----------------------------| Mixed of Raw and Reduced Data|------------------------------#
-        '''
-        # ICA
-        selected_ICA = find_ICA_comp(credit_X_train, 2)
-        ICA_df = combine_reduced_initial(credit_X_train, selected_ICA, credit_Y_train)
-        ICA_df.to_csv(data_folder+'credit_ICA{0}.csv'.format(IC_num), encoding='utf-8', index=False)
-        
-        # PCA
-        reduced_PCA = PCA(n_components=13).fit_transform(credit_X_train)
-        PCA_df = combine_reduced_initial(credit_X_train, reduced_PCA, credit_Y_train)
-        PCA_df.to_csv(data_folder+'credit_PCA{0}.csv'.format(PC_num), encoding='utf-8', index=False)
-        '''
-        
-        
   
-
-      
         
 def write_to_file(row, filename):
     header = "Alg,NUM_ATTR,CV,Train,AUC,Time".split(",")
@@ -922,8 +769,6 @@ def select_comp_supervised(data_X, data_Y, filename, NUM_ATTR, est_name):
     write_to_file(row, save_to)
     
     
-
-
 # Function used to print cross-validation scores
 def training_score(est, X, y, cv):
     acc = cross_val_score(est, X, y, cv = cv, scoring='accuracy')
@@ -961,8 +806,8 @@ def fit_ann(data_X, data_Y):
 
 def run_learning_curve(est, train_X, train_Y, cv):
     
-    train_sizes = [100, 500, 1000, 5000, 10000, 14700]
-    train_sizes = [50, 100, 500, 1000, 1500, 2000, 2399]
+    #train_sizes = [100, 500, 1000, 5000, 10000, 14700] - wine dataset
+    train_sizes = [50, 100, 500, 1000, 1500, 2000, 2399] # credit dataset
     title = 'Learning Curve (ANN, M={0}, L={1})'.format(0.2, 0.4)
     plt, train_scores, test_scores = plot_learning_curve(est, title, train_X, train_Y, 
                                                 (0.2, 1.05), cv=cv, n_jobs=-1, 
@@ -981,12 +826,11 @@ def get_reconstr_error(est, data_X_reduced, data_X_true):
     reconstructed_X = reconstruct_data(est, data_X_reduced)
     distance = np.linalg.norm(data_X_true-reconstructed_X,'fro')
     return distance
-    #for i in range(data_X.shape[1]):
-    #    np
+
 
 def reconstruct_PCA(data_X):
     dist = []
-    for comp_num in range(1, 24):
+    for comp_num in range(1, 23):
         #selected_ICA, kurtosis_list, est = find_ICA_comp(credit_X)
         #selected_ICA, kurtosis_list = slice_ICA_data(selected_ICA, kurtosis_list, comp_num)
         est = PCA(n_components=comp_num)
@@ -1033,7 +877,8 @@ def test_plain(data_X, data_Y, filename, est_name):
         else:
             est_labels = est.labels_
         
-        visualize(data_X, est, est_name + "Ureduced", K)
+        #test_estimator(filename, est, sliced_ICA_data, data_Y, time_red, K)
+        #visualize(data_X, est, est_name + "Unreduced", K)
         #visualize3D(sliced_ICA_data, est, est_name + " ICA reduced", K)
         new_data_X = np.c_[data_X,est_labels]
         select_comp_supervised(new_data_X, data_Y, filename, K, est_name)
@@ -1041,9 +886,7 @@ def test_plain(data_X, data_Y, filename, est_name):
     
 if __name__ == "__main__":
     np.random.seed(42)
-    #NUM_ATTR = 2
     silhouette_sample = 15000
-    attr_list_full = [2, 5, 10, 15, 20]
     ann_folder = get_path("../analysis_ANN/")
     km_folder = get_path("../analysis_KM/")
     gmm_folder = get_path("../analysis_EM/")
@@ -1057,7 +900,7 @@ if __name__ == "__main__":
         wine_df = pd.read_csv(get_path("../../datasets/wine_full.csv"))
         wine_df_train = pd.read_csv(get_path("../../datasets/wine_train.csv"))
     except:
-        print("Datasets could not be loaded")
+        print("Error reading datasets")
         
     credit_X, credit_Y = get_xy(credit_df)
     credit_X_train, credit_Y_train = get_xy(credit_df_train)
@@ -1072,7 +915,7 @@ if __name__ == "__main__":
     print_statistics(credit_X, credit_Y, "Credit Dataset")
     print_statistics(wine_X, wine_Y, "Wine Dataset")
     
-    # ANN
+    # Play with ANN
     #reduced_PCA = PCA(n_components=23).fit_transform(credit_X_train)
     #selected_ICA, kurtosis_list = find_ICA_comp(credit_X_train, 15)
     #cv_accuracy = fit_ann(credit_X_train, credit_Y_train)
@@ -1080,18 +923,17 @@ if __name__ == "__main__":
     #cv_accuracy = fit_ann(wine_X_train, wine_Y_train)
     
     #--------------------------------Test Unreduced ---------------------------
-    test_ANN_PCA(wine_X, wine_Y, "wine-ann", "PCA", 15)
-    test_ANN_ICA(wine_X, wine_Y, "wine-ann", "ICA", 15)
-    test_ANN_FA(wine_X, wine_Y, "wine-ann", "FA", 15)    
-    test_ANN_RP(wine_X, wine_Y, "wine-ann", "RP", 15)
+    #test_ANN_PCA(wine_X, wine_Y, "wine-ann", "PCA", 15)
+    #test_ANN_ICA(wine_X, wine_Y, "wine-ann", "ICA", 15)
+    #test_ANN_FA(wine_X, wine_Y, "wine-ann", "FA", 15)    
+    #test_ANN_RP(wine_X, wine_Y, "wine-ann", "RP", 15)
     
     
     #--------------------------------Test Unreduced ---------------------------
-    test_plain(credit_X, credit_Y, "wine-raw-ann", "gmm")
-    test_plain(credit_X, credit_Y, "wine-raw-ann", "kmm")
+    #test_plain(credit_X, credit_Y, "credit-raw-ann", "gmm")
+    #test_plain(credit_X, credit_Y, "credit-raw-ann", "kmm")
     #test_plain(wine_X, wine_Y, "wine-raw-ann", "gmm")
     #test_plain(wine_X, wine_Y, "wine-raw-ann", "km")
-    #test_plain(credit_X, credit_Y, "credit-raw-ann", "km")
     
     #--------------------------------Plot Unreduced ---------------------------
     #plot_df_matrix(credit_df)
@@ -1104,8 +946,8 @@ if __name__ == "__main__":
     #--------------------------------Test ICA ---------------------------------
     #test_ICA(credit_X, credit_Y, "credit-kmeans-ICA", "ICA km", 11)
     #test_ICA(credit_X, credit_Y, "credit-gmm-ICA", "ICA gmm", 11)
-    test_ICA(wine_X, wine_Y, "wine-ann", "ICA km", 6)
-    test_ICA(wine_X, wine_Y, "wine-ann", "ICA gmm", 6)
+    #test_ICA(wine_X, wine_Y, "wine-ann", "ICA km", 6)
+    #test_ICA(wine_X, wine_Y, "wine-ann", "ICA gmm", 6)
     
     #--------------------------------Plot ICA ---------------------------------
     #plot2D_mixture(reduced_ICA, 23)
@@ -1121,117 +963,23 @@ if __name__ == "__main__":
     #--------------------------------Test PCA ---------------------------------
     #test_PCA(credit_X, credit_Y, "credit-kmeans-PCA", "PCA km", 15)
     #test_PCA(credit_X, credit_Y, "credit-gmm-PCA", "PCA gmm", 15)
-    test_PCA(wine_X, wine_Y, "wine-ann", "PCA km", 8)
-    test_PCA(wine_X, wine_Y, "wine-ann", "PCA gmm", 8)
+    #test_PCA(wine_X, wine_Y, "wine-ann", "PCA km", 8)
+    #test_PCA(wine_X, wine_Y, "wine-ann", "PCA gmm", 8)
     
     #--------------------------------Test RP ---------------------------------
     #test_RP(credit_X, credit_Y, "credit-kmeans-RP", "RP km", 16)
     #test_RP(credit_X, credit_Y, "credit-gmm-RP", "RP gmm", 16)
-    test_RP(wine_X, wine_Y, "wine-ann", "RP km", 8)
-    test_RP(wine_X, wine_Y, "wine-ann", "RP gmm", 8)
+    #test_RP(wine_X, wine_Y, "wine-ann", "RP km", 8)
+    #test_RP(wine_X, wine_Y, "wine-ann", "RP gmm", 8)
     
     #--------------------------------Test FA ---------------------------------
     #test_FA(credit_X, credit_Y, "credit-kmeans-FA", "FA km", 16)
     #test_FA(credit_X, credit_Y, "credit-gmm-FA", "FA gmm", 16)
-    test_FA(wine_X, wine_Y, "wine-ann", "FA km", 8)
-    test_FA(wine_X, wine_Y, "wine-ann", "FA gmm", 8)
+    #test_FA(wine_X, wine_Y, "wine-ann", "FA km", 8)
+    #test_FA(wine_X, wine_Y, "wine-ann", "FA gmm", 8)
     #--------------------------------Test RP FA--------------------------------
     #find_RP(credit_X_train, credit_Y_train, "credit-ann-RP", "ann")
     #find_FA(credit_X_train, credit_Y_train, "credit-ann-FA", "ann")
     #find_RP(wine_X_train, wine_Y_train, "wine-svm-RP", "svm")
     #find_FA(wine_X_train, wine_Y_train, "wine-svm-FA", "svm")
     
-    #reduced_RP = random_projection.GaussianRandomProjection(n_components=23).fit_transform(credit_X)
-    #plot2D_mixture(reduced_RP, 10, False)
-    
-    #plot_distr_hist(selected_ICA)
-    #plot2D_mixture(selected_ICA, 10, False)
-    #eblow(credit_X, 10)
-    #eblow(wine_X, 10)
-    
-    #find_RP_comp(data_X, "credit_kmeans_RP.csv")
-    
-    #test_PCA(credit_X, credit_Y)
-    #test_ICA(credit_X, credit_Y)
-    
-    #reduced_full_ICA = np.c_[selected_ICA, credit_Y_train]
-    
-    #---------------------------------------Test Reduced Data ----------------------------#    
-    #save_to_test()
-    # Conbine Reduced Data and Initial
-    
-    
-    #reduced_full_ICA = np.c_[credit_X_train, selected_ICA, credit_Y_train]
-    #np.savetxt("credit_train_ICA.csv", reduced_full_ICA, delimiter=",")
-    
-    #######################################################################################################
-    '''    
-    if NUM_ATTR < 3:
-        voronoi_vis(reduced_PCA_scaled, kmeansPCA_scaled, 0.02, "K-means on the Credit PCA-reduced data (scaled)")
-        voronoi_vis(reduced_PCA_unscaled, kmeansPCA, 1000, "K-means on the Credit PCA-reduced data (unscaled)")
-        voronoi_vis(reduced_ICA, kmeansICA, 0.005, "K-means on the Credit ICA-reduced data")
-        voronoi_vis(reduced_PCA_scaled, kmeansPCA_scaled, 0.02, "K-means on the Credit FA-reduced data (scaled)")
-        voronoi_vis(reduced_RP, kmeansRP, 0.02, "K-means on the Credit RP-reduced data")
-        voronoi_vis(reduced_FA, kmeansFA, 0.02, "K-means on the Credit FA-reduced data")
-    '''
-    
-    '''
-    # Subplots
-    colors = np.array([x for x in 'bgrcmykbgrcmykbgrcmykbgrcmyk'])
-    colors = np.hstack([colors] * 20)
-    
-    plot_num = 1
-    plt.figure(figsize=(16, 12))    
-    
-    for name, clf_list in classifiers.items():
-        clf, X, time = clf_list
-        #if hasattr(clf, 'labels_'):
-        y_pred = clf.labels_.astype(np.int)
-        #else:
-        #    y_pred = clf.predict(X)
-        
-        # plot
-        plt.subplot(3, 3, plot_num)
-        #if i_dataset == 0:
-        plt.title(name, size=18)
-        plt.scatter(X[:, 0], X[:, 1], color=colors[y_pred].tolist(), s=2)
-        
-        
-        x_min, x_max = X[:, 0].min() - 1, X[:, 0].max() + 1
-        y_min, y_max = X[:, 1].min() - 1, X[:, 1].max() + 1
-        #plt.xlim(x_min, x_max)
-        #plt.ylim(y_min, y_max)
-        #plt.xlim(-2, 2)
-        #plt.ylim(-2, 2)
-        plt.xticks(())
-        plt.yticks(())
-        #plt.text(.99, .01, ('%.2fs' % (0.01)).lstrip('0'),
-        #         transform=plt.gca().transAxes, size=15,
-        #         horizontalalignment='right')
-        plot_num += 1
-
-    plt.show()
-    '''    
-    
-    '''
-    for i in set(kmeans.labels_):
-        index = kmeans.labels_ == i
-        plt.plot(data_X[index,0], data_X[index,1], 'o')
-    plt.show()
-    '''
-    
-    '''
-    #a = np.asarray([ [1,2,3], [4,5,6], [7,8,9] ])
-    #np.savetxt("foo.csv", a, delimiter=",")
-    '''
-    
-    '''
-    # Confusion Matrix
-    print(pd.crosstab(kmeans.labels_, credit_Y))
-    print_accuracy(kmeans, data_X, credit_Y, name='kmeans')
-    print("credit_Y = 0: " + str(np.count_nonzero(credit_Y == 0)) )
-    print("\n")
-    
-    print(pd.crosstab(kmeansPCA.labels_, credit_Y))   
-    print_accuracy(kmeansPCA, reduced_PCA_unscaled, credit_Y, name='kmeansPCA')
-    '''

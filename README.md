@@ -2,7 +2,7 @@
 * Applied K-means, EM clustering algorithms to two datasets before and after dimensionality reduction
 * Added clustering labels as a new feature to the initial datasets. Tested improvement in Neural Networks performance on the modified datasets
 
-![ica_reduced_gender](https://cloud.githubusercontent.com/assets/8766167/21696661/db2a7a76-d343-11e6-9a6d-4231dd8192de.jpg)
+![ica_reduced_gender](https://cloud.githubusercontent.com/assets/8766167/21696793/66af4392-d344-11e6-8fcb-73537ffc3152.jpg)
 
 ![credit_ica_23x23](https://cloud.githubusercontent.com/assets/8766167/21696409/c7e58bfa-d342-11e6-95ca-26f3ef4fc45c.jpg)
 

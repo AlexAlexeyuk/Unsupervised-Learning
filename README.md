@@ -1,8 +1,9 @@
 <p align="center">
   <b>Unsupervised Learning and Dimensionality Reduction</b>
 </p>
-Used datasets:
-1. [Default of Credit Card Clients](http://archive.ics.uci.edu/ml/datasets/default+of+credit+card+clients)
+
+Used datasets:<br>
+1. [Default of Credit Card Clients](http://archive.ics.uci.edu/ml/datasets/default+of+credit+card+clients)<br>
 2. [White Wine Quality](https://archive.ics.uci.edu/ml/datasets/Wine+Quality)
 
 Summary:

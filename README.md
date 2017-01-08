@@ -14,6 +14,6 @@ Summary:
   <img src="https://cloud.githubusercontent.com/assets/8766167/21746984/a135ee5c-d50c-11e6-949b-add12f1a9429.jpg">
 </p>
 
-![credit_ica_23x23](https://cloud.githubusercontent.com/assets/8766167/21696409/c7e58bfa-d342-11e6-95ca-26f3ef4fc45c.jpg)
+![credit_ica_23x23](https://cloud.githubusercontent.com/assets/8766167/21747019/0015b172-d50e-11e6-946d-75ff9cabb6e4.jpg)
 
-![wine_ica_11x11_pd](https://cloud.githubusercontent.com/assets/8766167/21696444/eb7d96a2-d342-11e6-8a91-4395b0b33da2.png)
+![wine_ica_11x11_pd](https://cloud.githubusercontent.com/assets/8766167/21747067/cac3d164-d50f-11e6-8173-a29e997251e9.jpg)
